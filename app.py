@@ -95,5 +95,5 @@ if st.button("🚀 분석 시작"):
                 st.dataframe(df, use_container_width=True)
                 output = io.BytesIO()
                 with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df.to_excel(writer, index=False, sheet_name='Formulation')
+                    df.to_excel(writer, index=False, sheet_name='배합비')
                 st.download_button("📥 엑셀 다운로드", data=output.getvalue(), file_name="R&D_Result.xlsx")
