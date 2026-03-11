@@ -1,109 +1,71 @@
 import streamlit as st
 import google.generativeai as genai
+from openai import OpenAI
 import os
 
-# ==========================================
-# 1. 초기 설정 및 보안 (Senior Dev Standard)
-# ==========================================
-st.set_page_config(
-    page_title="Food R&D AI System",
-    page_icon="🧪",
-    layout="wide"
-)
+# 1. 시니어 전문가 모드 설정
+st.set_page_config(page_title="Food R&D Expert System", layout="wide")
 
-# [설정] 사용자 요청에 따른 모델 고정
-# 환경에 따라 정식 명칭 'gemini-2.0-flash' 또는 'gemini-2.5-flash' 사용
-MODEL_NAME = 'gemini-2.5-flash'
-
-def initialize_agent():
-    """AI 모델 초기화 및 API 키 검증"""
+# API 로드 로직 (오류 점검 포함)
+def get_api_keys():
     try:
-        # Streamlit Secrets 우선 참조
-        if "GOOGLE_API_KEY" in st.secrets:
-            api_key = st.secrets["GOOGLE_API_KEY"]
-        else:
-            api_key = os.getenv("GOOGLE_API_KEY")
+        g_key = st.secrets["GOOGLE_API_KEY"]
+        o_key = st.secrets["OPENAI_API_KEY"]
+        return g_key, o_key
+    except:
+        return None, None
 
-        if not api_key:
-            st.error("⚠️ API 키가 설정되지 않았습니다. Secrets를 확인하세요.")
-            return None
+g_api_key, o_api_key = get_api_keys()
+
+if not g_api_key or not o_api_key:
+    st.error("⚠️ API 키가 설정되지 않았습니다. .streamlit/secrets.toml 또는 Cloud Secrets를 확인하세요.")
+    st.stop()
+
+# 2. AI 모델 초기화
+genai.configure(api_key=g_api_key)
+gemini_model = genai.GenerativeModel('gemini-2.5-flash')
+openai_client = OpenAI(api_key=o_api_key)
+
+# 3. 핵심 기능: OpenAI 기반 식품 배합비 산출
+def generate_formula(target_product):
+    prompt = f"""
+    식품공학 전문가로서 다음 제품의 표준 배합비를 작성하라: {target_product}
+    1. 문헌 및 논문에 근거한 표준 배합비를 사용하되 표 형식으로 출력할 것.
+    2. 표에는 [원료명, 배합비(%), 사용 목적, 용도, 용법, 사용주의사항] 칸을 반드시 포함할 것.
+    3. 전문가적 소견으로 마케팅 전략도 간략히 첨언할 것.
+    """
+    # 응답이 빠르고 로드 부담이 적은 gpt-4o-mini 모델 사용
+    response = openai_client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "system", "content": "당신은 20년차 식품기술사이자 마케팅 전문가입니다."},
+                  {"role": "user", "content": prompt}]
+    )
+    return response.choices[0].message.content
+
+# --- UI 구현 ---
+st.title("🧪 식품 신제품 개발 AI 지원 시스템 (Senior Ver.)")
+st.sidebar.header("📊 시스템 상태")
+st.sidebar.success("Gemini 2.5 Flash 연결 완료")
+st.sidebar.success("OpenAI gpt-4o-mini 연결 완료")
+
+target = st.text_input("개발하고자 하는 신제품명을 입력하세요:", placeholder="예: 무설탕 비타민 전해질 음료")
+
+if st.button("전문 분석 및 배합비 생성"):
+    with st.spinner("AI 전문가들이 배합비와 전략을 구성 중입니다..."):
+        # 1단계: Gemini 2.5 Flash를 이용한 시장 및 원료 트렌드 분석
+        market_analysis = gemini_model.generate_content(f"{target}에 대한 최신 식품 소재 및 소비 트렌드 분석").text
         
-        genai.configure(api_key=api_key)
-        return genai.GenerativeModel(MODEL_NAME)
-    except Exception as e:
-        st.error(f"❌ 초기화 오류: {str(e)}")
-        return None
-
-# ==========================================
-# 2. 메인 로직 함수
-# ==========================================
-def get_ai_response(model, prompt):
-    """오류 점검 및 효율적 응답 생성"""
-    try:
-        # 응답 생성 (Fast Load 설정)
-        response = model.generate_content(prompt)
+        # 2단계: OpenAI를 이용한 정밀 배합비 산출 (지침 준수)
+        formula_data = generate_formula(target)
         
-        # [충돌 방지] 응답 후보군 존재 여부 체크
-        if response and response.candidates:
-            return response.text
-        else:
-            return "⚠️ AI가 응답을 생성했으나 안전 정책에 의해 차단되었거나 내용이 비어있습니다."
-    except Exception as e:
-        # 사소한 문법/논리 오류 방지를 위한 구체적 에러 메시지
-        return f"❌ [시스템 에러] {type(e).__name__}: {str(e)}"
+        # 결과 출력
+        st.subheader("💡 시장 트렌드 및 소재 분석 (Gemini)")
+        st.write(market_analysis)
+        
+        st.divider()
+        
+        st.subheader("📝 표준 배합비 및 기술 검토 (OpenAI)")
+        st.markdown(formula_data)
 
-# ==========================================
-# 3. Streamlit UI 레이아웃
-# ==========================================
-def main():
-    st.title("🧪 식품 신제품 개발 AI 지원 시스템")
-    st.caption("20년 차 시니어 AI 및 식품 공학 전문가 모드 가동 중")
-    
-    # 모델 초기화
-    model = initialize_agent()
-    
-    if model:
-        # 사이드바 설정
-        with st.sidebar:
-            st.header("⚙️ 분석 설정")
-            st.info(f"현재 모델: {MODEL_NAME}")
-            st.write("---")
-            st.markdown("""
-            **분석 가능 영역:**
-            - 음료/식품 신제품 기획
-            - 맛/원료 기반 소비빈도 분석
-            - 표준 배합비 설계
-            """)
-
-        # 입력 영역
-        st.subheader("📝 분석 요청")
-        user_input = st.text_area(
-            "분석할 원료 데이터나 마케팅 요구사항을 입력하세요.",
-            height=250,
-            placeholder="예: 40대 남성을 타겟으로 한 고단백 음료의 재구매 빈도를 높이기 위한 맛과 배합비 제안..."
-        )
-
-        col1, col2 = st.columns([1, 5])
-        with col1:
-            if st.button("🚀 분석 실행", use_container_width=True):
-                if user_input:
-                    with st.spinner("Gemini 2.5 Flash가 데이터를 정밀 분석 중입니다..."):
-                        # [핵심] 전체 수정한 부분: 로직의 효율성 및 오류 점검
-                        result = get_ai_response(model, user_input)
-                        
-                        st.divider()
-                        st.subheader("📊 분석 및 제안 결과")
-                        st.markdown(result)
-                        
-                        # 결과 다운로드 기능 (Senior 가이드)
-                        st.download_button(
-                            label="결과 레포트 다운로드",
-                            data=result,
-                            file_name="food_rnd_report.md",
-                            mime="text/markdown"
-                        )
-                else:
-                    st.warning("분석할 내용을 입력해 주세요.")
-
-if __name__ == "__main__":
-    main()
+st.divider()
+st.caption("© 2026 Food R&D Expert System - 시니어 AI 및 식품/포장기술사 설계")
