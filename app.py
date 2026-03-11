@@ -1,138 +1,140 @@
 import streamlit as st
-import asyncio
+import google.generativeai as genai
 import pandas as pd
-from playwright.async_api import async_playwright
-from openai import OpenAI
-import datetime
+from PyPDF2 import PdfReader
 import io
-import re
-import subprocess
-import sys
 
 # ==========================================
-# 1. 시스템 설정
+# 1. 초기 설정 및 보안
 # ==========================================
-st.set_page_config(page_title="음료 R&D 실시간 대시보드", layout="wide")
+st.set_page_config(page_title="R&D 전략 상황실 v2.0", layout="wide", page_icon="🎯")
 
+# UI 커스텀 스타일링
 st.markdown("""
     <style>
-    .stButton>button { width: 100%; border-radius: 8px; height: 3.5em; background-color: #007BFF; color: white; font-weight: bold; }
-    .status-log { padding: 10px; background-color: #f0f2f6; border-radius: 5px; font-family: 'Courier New', Courier, monospace; font-size: 0.9em; }
-    .data-card { padding: 15px; border: 1px solid #e6e9ef; border-radius: 10px; background-color: white; }
+    .channel-box { border: 1px solid #d1d8e0; padding: 15px; border-radius: 10px; background-color: #ffffff; height: 650px; display: flex; flex-direction: column; }
+    .stButton>button { width: 100%; border-radius: 5px; font-weight: bold; }
+    .master-panel { background-color: #2c3e50; color: white; padding: 25px; border-radius: 12px; margin-bottom: 25px; }
+    .chat-area { flex-grow: 1; overflow-y: auto; background: #f9f9f9; padding: 10px; border-radius: 5px; margin-bottom: 10px; font-size: 0.85rem; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🥤 실시간 음료 R&D 데이터 가공 대시보드")
-st.sidebar.header("⚙️ API 설정")
+# API 설정
+with st.sidebar:
+    st.title("🛡️ System Control")
+    api_key = st.text_input("Gemini API Key", type="password")
+    if api_key:
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel('gemini-1.5-flash')
+    st.divider()
+    st.caption("Senior R&D Specialist Mode Active")
 
-api_key = st.sidebar.text_input("OpenAI API Key", type="password")
-client = OpenAI(api_key=api_key) if api_key else None
-
-def ensure_playwright():
-    """런타임 브라우저 설치 보장"""
+# ==========================================
+# 2. 데이터 처리 함수
+# ==========================================
+def extract_text(uploaded_file):
+    """다양한 파일 형식에서 텍스트를 추출합니다."""
+    if uploaded_file is None: return ""
+    fname = uploaded_file.name
     try:
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+        if fname.endswith('.pdf'):
+            reader = PdfReader(uploaded_file)
+            return " ".join([page.extract_text() for page in reader.pages])
+        elif fname.endswith(('.xlsx', '.csv')):
+            df = pd.read_excel(uploaded_file) if fname.endswith('.xlsx') else pd.read_csv(uploaded_file)
+            return df.to_string()
+        else:
+            return uploaded_file.read().decode('utf-8', errors='ignore')
     except Exception as e:
-        st.sidebar.error(f"설치 알림: {e}")
+        return f"파일 읽기 오류: {e}"
 
 # ==========================================
-# 2. 실시간 데이터 파이프라인 시각화
+# 3. 메인 화면 구성
 # ==========================================
-async def run_data_pipeline(log_placeholder):
-    ensure_playwright()
-    
-    log_placeholder.markdown("🔍 **[1/4]** 시스템 라이브러리 확인 및 브라우저 초기화 중...")
-    
-    async with async_playwright() as p:
-        try:
-            # 시니어 팁: 리눅스 환경 에러 방지를 위한 핵심 인자 추가
-            browser = await p.chromium.launch(
-                headless=True,
-                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
-            )
-            context = await browser.new_context(user_agent="Mozilla/5.0")
-            page = await context.new_page()
-            
-            url = "https://ceo.baemin.com/knowhow/articles?category=102"
-            log_placeholder.markdown(f"🌐 **[2/4]** 타겟 데이터 소스 접속: `{url}`")
-            
-            await page.goto(url, wait_until="networkidle", timeout=60000)
-            
-            log_placeholder.markdown("📂 **[3/4]** 비정형 텍스트 수집 및 파싱 중...")
-            raw_titles = await page.locator("h3").all_inner_texts()
-            await browser.close()
-            
-            log_placeholder.markdown(f"✅ **[4/4]** 수집 완료! (총 {len(raw_titles)}건 확보)")
-            
-            keywords = ["음료", "카페", "커피", "티", "에이드", "과일", "저당", "제로", "식물성"]
-            filtered = [t.strip() for t in raw_titles if any(k in t for k in keywords)]
-            
-            return raw_titles, filtered
-        except Exception as e:
-            log_placeholder.error(f"❌ 파이프라인 중단: {str(e)}")
-            return [], []
 
-# ==========================================
-# 3. 메인 대시보드 가동
-# ==========================================
-if st.button("🚀 R&D 데이터 파이프라인 가동"):
-    if not api_key:
-        st.error("API Key를 입력해 주세요.")
-    else:
-        # 대시보드 탭 구성
-        t_ingest, t_analyze, t_export = st.tabs(["📡 데이터 인입", "🧠 AI 가공 논리", "📊 최종 자산"])
+# 상단 통합 대시보드
+st.markdown('<div class="master-panel">', unsafe_allow_html=True)
+col_title, col_btn = st.columns([3, 1])
+with col_title:
+    st.subheader("🎯 통합 R&D 전략 마스터 대시보드")
+    st.caption("하단 3개 분석실의 인사이트를 통합하여 최종 제품 설계안을 도출합니다.")
+
+with col_btn:
+    if st.button("🚀 3축 통합 전략 수립 시작"):
+        # 3개 채널의 대화 요약본 수집 로직
+        summaries = []
+        for i in range(1, 4):
+            hist = st.session_state.get(f'chat_hist_{i}', [])
+            if hist:
+                summaries.append(f"[채널 {i} 분석 요약]: {hist[-1][1]}")
         
-        with t_ingest:
-            st.subheader("Raw Data Stream")
-            log_area = st.empty()
-            raw, filtered = asyncio.run(run_data_pipeline(log_area))
-            
-            c1, c2 = st.columns(2)
-            with c1:
-                st.write("**[원본 데이터 스트림]**")
-                st.write(raw if raw else "데이터 없음")
-            with c2:
-                st.write("**[필터링된 트렌드 시그널]**")
-                st.success(filtered if filtered else "필터링된 신호 없음")
+        if len(summaries) < 3:
+            st.warning("3개 채널의 분석이 모두 완료되어야 통합이 가능합니다.")
+        else:
+            with st.spinner("최종 시나리오 생성 중..."):
+                final_prompt = f"다음 3가지 관점의 데이터를 통합하여 신제품 기획안과 초기 배합비를 설계해줘.\n\n" + "\n".join(summaries)
+                response = model.generate_content(final_prompt)
+                st.session_state.final_report = response.text
+st.markdown('</div>', unsafe_allow_html=True)
 
-        with t_analyze:
-            st.subheader("AI R&D Processing")
-            if filtered:
-                with st.status("식품기술사 AI가 배합비를 산출하고 있습니다...") as s:
-                    st.write("- 트렌드 시그널 분석 중...")
-                    st.write("- 식품공전 기준 성분 검토 중...")
-                    st.write("- 최적 배합비 표 생성 중...")
-                    
-                    prompt = f"20년 차 식품기술사로서 {filtered} 트렌드 기반 음료 배합비를 표 형식(|원료명|배합비(%)|사용 목적|비고|)으로 상세히 작성하세요."
-                    res = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.3
-                    )
-                    report = res.choices[0].message.content
-                    s.update(label="분석 완료", state="complete")
-                
-                st.markdown(report)
+if 'final_report' in st.session_state:
+    with st.expander("📄 최종 통합 R&D 리포트 확인", expanded=True):
+        st.markdown(st.session_state.final_report)
+
+# 하단 3분할 채널
+st.divider()
+ch_cols = st.columns(3)
+channels = [
+    {"id": 1, "name": "🌍 거시경제 분석", "color": "#34495e"},
+    {"id": 2, "name": "📊 음료시장 데이터", "color": "#2980b9"},
+    {"id": 3, "name": "👥 소비자 태도조사", "color": "#8e44ad"}
+]
+
+for i, ch in enumerate(channels):
+    with ch_cols[i]:
+        st.markdown(f'<div class="channel-box" style="border-top: 5px solid {ch["color"]};">', unsafe_allow_html=True)
+        st.subheader(ch["name"])
+        
+        # 1. 개별 파일 업로드 (찾아보기 버튼)
+        up_file = st.file_uploader(f"파일 찾기 (채널 {ch['id']})", type=['pdf', 'xlsx', 'csv', 'txt'], key=f"file_{ch['id']}")
+        
+        if up_file:
+            st.session_state[f"context_{ch['id']}"] = extract_text(up_file)
+            st.success(f"✅ {up_file.name} 로드 완료")
+
+        # 2. 채팅 기록 관리
+        if f"chat_hist_{ch['id']}" not in st.session_state:
+            st.session_state[f"chat_hist_{ch['id']}"] = []
+        
+        # 3. 개별 챗봇 인터페이스
+        st.write("**분석 대화**")
+        chat_container = st.container()
+        with chat_container:
+            st.markdown('<div class="chat-area">', unsafe_allow_html=True)
+            for role, text in st.session_state[f"chat_hist_{ch['id']}"]:
+                icon = "👤" if role == "user" else "🤖"
+                st.write(f"{icon} {text}")
+            st.markdown('</div>', unsafe_allow_html=True)
+
+        # 질문 입력
+        if user_input := st.chat_input(f"{ch['id']}번 질문 입력", key=f"input_{ch['id']}"):
+            if not api_key:
+                st.error("API Key가 필요합니다.")
             else:
-                st.warning("분석할 트렌드 데이터가 수집되지 않았습니다.")
+                st.session_state[f"chat_hist_{ch['id']}"].append(("user", user_input))
+                
+                # RAG 로직: 파일 컨텍스트가 있으면 포함하여 질문
+                context = st.session_state.get(f"context_{ch['id']}", "")
+                full_query = f"다음 문서를 바탕으로 질문에 답해줘.\n\n[문서내용]\n{context[:5000]}\n\n질문: {user_input}"
+                
+                response = model.generate_content(full_query)
+                st.session_state[f"chat_hist_{ch['id']}"].append(("assistant", response.text))
+                st.rerun()
 
-        with t_export:
-            st.subheader("Final R&D Assets")
-            if 'report' in locals():
-                # 표 파싱 및 데이터프레임 변환
-                match = re.search(r'\|.*\|(?:\n\|.*\|)*', report)
-                if match:
-                    lines = match.group(0).strip().split('\n')
-                    headers = [c.strip() for c in lines[0].split('|')[1:-1]]
-                    data = [[c.strip() for c in l.split('|')[1:-1]] for l in lines[2:]]
-                    df = pd.DataFrame(data, columns=headers)
-                    
-                    st.dataframe(df, use_container_width=True)
-                    
-                    output = io.BytesIO()
-                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df.to_excel(writer, index=False, sheet_name='Formulation')
-                    st.download_button("📥 배합비 엑셀 저장", data=output.getvalue(), file_name="R&D_Result.xlsx")
+        st.markdown('</div>', unsafe_allow_html=True)
 
-st.sidebar.divider()
-st.sidebar.caption("Pipeline: Playwright Headless -> Regex Parsing -> GPT-4o-mini")
+# 초기화 버튼
+if st.sidebar.button("🧹 모든 세션 초기화"):
+    for key in list(st.session_state.keys()):
+        del st.session_state[key]
+    st.rerun()
