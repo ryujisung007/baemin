@@ -9,28 +9,78 @@ from chromadb.utils import embedding_functions
 
 # ── Gemini 모델 설정 ──
 FLASH_MODELS = [
-    "gemini-2.5-flash-preview-05-20",
-    "gemini-2.0-flash-001",
-    "gemini-1.5-flash-latest",
+    "gemini-2.5-flash",
+    "gemini-2.0-flash",
+    "gemini-2.5-flash-lite",
 ]
 EMBED_MODEL = "models/text-embedding-004"
+
+# 캐싱: 한번 확인된 모델명 재사용
+_verified_model_name = None
 
 
 def configure_gemini(api_key: str):
     """Gemini API 키 설정"""
+    global _verified_model_name
+    _verified_model_name = None  # API 키 변경 시 재검증
     genai.configure(api_key=api_key)
 
 
 def get_flash_model() -> genai.GenerativeModel:
     """사용 가능한 Flash 모델 반환 (Cascading fallback)"""
+    global _verified_model_name
+
+    # 이미 검증된 모델이 있으면 바로 반환
+    if _verified_model_name:
+        return genai.GenerativeModel(_verified_model_name)
+
+    # 사용 가능한 모델 목록 가져오기
+    available = set()
+    try:
+        for m in genai.list_models():
+            methods = []
+            try:
+                methods = m.supported_generation_methods
+            except AttributeError:
+                try:
+                    methods = [s.name for s in m.supported_generation_methods]
+                except Exception:
+                    pass
+            if "generateContent" in methods:
+                name = m.name if isinstance(m.name, str) else str(m.name)
+                available.add(name.replace("models/", ""))
+    except Exception:
+        pass
+
+    # 1차: 목록에서 매칭
+    for model_name in FLASH_MODELS:
+        if model_name in available:
+            _verified_model_name = model_name
+            return genai.GenerativeModel(model_name)
+
+    # 2차: 목록에 flash가 포함된 모델 찾기
+    for name in sorted(available):
+        if "flash" in name and "live" not in name:
+            _verified_model_name = name
+            return genai.GenerativeModel(name)
+
+    # 3차: 직접 호출 테스트 (목록 API 실패 시)
     for model_name in FLASH_MODELS:
         try:
             model = genai.GenerativeModel(model_name)
-            model.generate_content("test", generation_config={"max_output_tokens": 5})
+            model.generate_content(
+                "hi",
+                generation_config={"max_output_tokens": 3},
+            )
+            _verified_model_name = model_name
             return model
         except Exception:
             continue
-    raise RuntimeError("사용 가능한 Gemini Flash 모델이 없습니다.")
+
+    raise RuntimeError(
+        "사용 가능한 Gemini Flash 모델이 없습니다.\n"
+        "API 키를 확인하고, https://aistudio.google.com/app/apikey 에서 재발급해보세요."
+    )
 
 
 # ============================================================
@@ -168,10 +218,17 @@ class RAGVectorStore:
 
     def __init__(self, api_key: str):
         self.client = chromadb.Client()
-        self.embed_fn = embedding_functions.GoogleGenerativeAiEmbeddingFunction(
-            api_key=api_key,
-            model_name=EMBED_MODEL,
-        )
+        try:
+            self.embed_fn = embedding_functions.GoogleGenerativeAiEmbeddingFunction(
+                api_key=api_key,
+                model_name=EMBED_MODEL,
+            )
+        except Exception:
+            # 폴백: ChromaDB 기본 임베딩 (sentence-transformers 또는 onnx)
+            try:
+                self.embed_fn = embedding_functions.DefaultEmbeddingFunction()
+            except Exception:
+                self.embed_fn = None
         self.collections = {}
 
     def get_or_create_collection(self, name: str) -> chromadb.Collection:

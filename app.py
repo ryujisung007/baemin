@@ -6,6 +6,7 @@ import streamlit as st
 import time, json, os
 from rag_engine import (
     configure_gemini,
+    get_flash_model,
     extract_text_from_file,
     chunk_text,
     tag_topics_batch,
@@ -199,31 +200,45 @@ def render_report_section(section: dict):
 
 def process_upload(uploaded_file, category: str):
     """파일 업로드 처리 파이프라인"""
-    with st.spinner("📄 텍스트 추출 중..."):
-        file_bytes = uploaded_file.read()
-        raw_text = extract_text_from_file(file_bytes, uploaded_file.name)
-        st.session_state.raw_texts[category] = raw_text
-        st.session_state.file_info[category] = {
-            "name": uploaded_file.name,
-            "size": f"{len(file_bytes) / 1024 / 1024:.1f}MB",
-        }
+    try:
+        with st.spinner("📄 텍스트 추출 중..."):
+            file_bytes = uploaded_file.read()
+            raw_text = extract_text_from_file(file_bytes, uploaded_file.name)
+            st.session_state.raw_texts[category] = raw_text
+            st.session_state.file_info[category] = {
+                "name": uploaded_file.name,
+                "size": f"{len(file_bytes) / 1024 / 1024:.1f}MB",
+            }
 
-    with st.spinner("📝 AI 자동 요약 생성 중..."):
-        summary, keywords = generate_auto_summary(raw_text, category)
-        st.session_state.summaries[category] = summary
-        st.session_state.keywords[category] = keywords
+        with st.spinner("📝 AI 자동 요약 생성 중..."):
+            summary, keywords = generate_auto_summary(raw_text, category)
+            st.session_state.summaries[category] = summary
+            st.session_state.keywords[category] = keywords
 
-    with st.spinner("🔗 청킹 & 토픽 태깅 중..."):
-        chunks = chunk_text(raw_text)
-        tagged_chunks = tag_topics_batch(chunks, category)
+        with st.spinner("🔗 청킹 & 토픽 태깅 중..."):
+            chunks = chunk_text(raw_text)
+            try:
+                tagged_chunks = tag_topics_batch(chunks, category)
+            except Exception:
+                # 태깅 실패 시 기본 태그로 진행
+                tagged_chunks = chunks
+                for c in tagged_chunks:
+                    c["topics"] = ["기타"]
+                    c["category"] = category
 
-    with st.spinner("📊 벡터DB 인덱싱 중..."):
-        vs = st.session_state.vector_store
-        vs.clear_collection(category)
-        vs.add_chunks(category, tagged_chunks)
-        st.session_state.indexed[category] = True
+        with st.spinner("📊 벡터DB 인덱싱 중..."):
+            vs = st.session_state.vector_store
+            vs.clear_collection(category)
+            vs.add_chunks(category, tagged_chunks)
+            st.session_state.indexed[category] = True
 
-    st.session_state.uploads[category] = True
+        st.session_state.uploads[category] = True
+
+    except Exception as e:
+        st.error(f"❌ 업로드 처리 중 오류: {str(e)}")
+        st.info("💡 Gemini API Key가 올바른지 확인해주세요.")
+        import traceback
+        st.code(traceback.format_exc(), language="text")
 
 
 def handle_chat(query: str, category: str, topic_filter: str = "전체", extra_collections=None):
@@ -280,10 +295,20 @@ with st.sidebar:
     )
     if api_key and api_key != st.session_state.gemini_api_key:
         st.session_state.gemini_api_key = api_key
-        configure_gemini(api_key)
-        st.session_state.vector_store = RAGVectorStore(api_key)
-        st.session_state.api_configured = True
-        st.success("✅ API 연결 완료")
+        try:
+            configure_gemini(api_key)
+            st.session_state.vector_store = RAGVectorStore(api_key)
+            # 모델 접근 테스트
+            model = get_flash_model()
+            import rag_engine
+            model_name = rag_engine._verified_model_name or "flash"
+            st.session_state.api_configured = True
+            st.success(f"✅ API 연결 완료 ({model_name})")
+        except Exception as e:
+            st.session_state.api_configured = False
+            st.error(f"❌ API 연결 실패: {str(e)}")
+    elif api_key and st.session_state.api_configured:
+        st.success("✅ API 연결됨")
 
     st.markdown("---")
 
