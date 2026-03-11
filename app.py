@@ -7,6 +7,7 @@ import time, json, os
 from rag_engine import (
     configure_gemini,
     get_flash_model,
+    get_debug_log,
     extract_text_from_file,
     chunk_text,
     tag_topics_batch,
@@ -237,8 +238,11 @@ def process_upload(uploaded_file, category: str):
     except Exception as e:
         st.error(f"❌ 업로드 처리 중 오류: {str(e)}")
         st.info("💡 Gemini API Key가 올바른지 확인해주세요.")
-        import traceback
-        st.code(traceback.format_exc(), language="text")
+        with st.expander("🔍 디버그 로그"):
+            for line in get_debug_log():
+                st.text(line)
+            import traceback
+            st.code(traceback.format_exc(), language="text")
 
 
 def handle_chat(query: str, category: str, topic_filter: str = "전체", extra_collections=None):
@@ -297,19 +301,38 @@ with st.sidebar:
         st.session_state.gemini_api_key = api_key
         try:
             configure_gemini(api_key)
-            # 모델 접근 테스트
-            model = get_flash_model()
             import rag_engine
-            model_name = rag_engine._verified_model_name or "flash"
-            # 벡터 스토어 생성 (임베딩 모델 테스트 포함)
+            gen_model = rag_engine._verified_model_name
+            emb_model = rag_engine._verified_embed_model
+
+            if not gen_model:
+                st.error("❌ 생성 모델을 찾지 못했습니다")
+                with st.expander("🔍 디버그 로그"):
+                    for line in get_debug_log():
+                        st.text(line)
+                st.session_state.api_configured = False
+                st.stop()
+
+            if not emb_model:
+                st.error("❌ 임베딩 모델을 찾지 못했습니다")
+                with st.expander("🔍 디버그 로그"):
+                    for line in get_debug_log():
+                        st.text(line)
+                st.session_state.api_configured = False
+                st.stop()
+
             st.session_state.vector_store = RAGVectorStore(api_key)
-            embed_name = rag_engine._verified_embed_model or "default"
             st.session_state.api_configured = True
-            st.success(f"✅ LLM: {model_name}")
-            st.success(f"✅ Embed: {embed_name}")
+            st.success(f"✅ LLM: {gen_model}")
+            st.success(f"✅ Embed: {emb_model}")
         except Exception as e:
             st.session_state.api_configured = False
             st.error(f"❌ API 연결 실패: {str(e)}")
+            with st.expander("🔍 디버그 로그"):
+                for line in get_debug_log():
+                    st.text(line)
+                import traceback
+                st.code(traceback.format_exc())
     elif api_key and st.session_state.api_configured:
         st.success("✅ API 연결됨")
 
