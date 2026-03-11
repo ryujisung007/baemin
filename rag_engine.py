@@ -25,12 +25,21 @@ def _log(msg: str):
     _debug_log.append(msg)
 
 
+_last_api_key = None
+
+
 def configure_gemini(api_key: str):
     """Gemini API 키 설정 + 사용 가능한 모델 탐색"""
-    global _verified_model_name, _verified_embed_model
+    global _verified_model_name, _verified_embed_model, _last_api_key
+
+    # 같은 키로 이미 설정했고 모델이 있으면 skip
+    if api_key == _last_api_key and _verified_model_name and _verified_embed_model:
+        return
+
     _verified_model_name = None
     _verified_embed_model = None
     _debug_log.clear()
+    _last_api_key = api_key
     genai.configure(api_key=api_key)
     _discover_models()
 
