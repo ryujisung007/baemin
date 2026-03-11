@@ -14,9 +14,95 @@ FLASH_MODELS = [
     "gemini-2.5-flash-lite",
 ]
 EMBED_MODELS = [
-    "models/gemini-embedding-001",
-    "models/text-embedding-004",
+    "gemini-embedding-001",
+    "text-embedding-004",
 ]
+
+# 검증된 임베딩 모델 캐싱
+_verified_embed_model = None
+
+
+def _find_embed_model() -> str:
+    """사용 가능한 임베딩 모델 찾기"""
+    global _verified_embed_model
+    if _verified_embed_model:
+        return _verified_embed_model
+
+    # 1차: list_models에서 embed 지원 모델 찾기
+    try:
+        for m in genai.list_models():
+            name = m.name.replace("models/", "") if hasattr(m, "name") else ""
+            methods = []
+            try:
+                methods = m.supported_generation_methods
+            except Exception:
+                pass
+            if "embedContent" in methods:
+                for candidate in EMBED_MODELS:
+                    if candidate in name:
+                        _verified_embed_model = name
+                        return name
+    except Exception:
+        pass
+
+    # 2차: 직접 호출 테스트
+    for model_name in EMBED_MODELS:
+        for name_variant in [model_name, f"models/{model_name}"]:
+            try:
+                genai.embed_content(model=name_variant, content="test")
+                _verified_embed_model = name_variant
+                return name_variant
+            except Exception:
+                continue
+
+    raise RuntimeError("사용 가능한 임베딩 모델이 없습니다.")
+
+
+class GeminiEmbeddingFunction:
+    """genai.embed_content를 직접 호출하는 커스텀 임베딩 함수 (ChromaDB 호환)"""
+
+    def __init__(self):
+        self.model_name = _find_embed_model()
+
+    def __call__(self, input: List[str]) -> List[List[float]]:
+        embeddings = []
+        # 배치 처리 (한번에 최대 100개)
+        for i in range(0, len(input), 100):
+            batch = input[i:i + 100]
+            try:
+                result = genai.embed_content(
+                    model=self.model_name,
+                    content=batch,
+                )
+                if hasattr(result, "embedding"):
+                    # 단일 텍스트 결과
+                    if isinstance(result.embedding[0], float):
+                        embeddings.append(result.embedding)
+                    else:
+                        embeddings.extend(result.embedding)
+                elif isinstance(result, dict) and "embedding" in result:
+                    emb = result["embedding"]
+                    if isinstance(emb[0], float):
+                        embeddings.append(emb)
+                    else:
+                        embeddings.extend(emb)
+                else:
+                    # 다른 형식 처리
+                    embeddings.extend(result["embedding"])
+            except Exception as e:
+                # 개별 처리 폴백
+                for text in batch:
+                    try:
+                        r = genai.embed_content(model=self.model_name, content=text)
+                        if hasattr(r, "embedding"):
+                            embeddings.append(r.embedding)
+                        else:
+                            embeddings.append(r["embedding"])
+                    except Exception:
+                        # 빈 벡터 (768차원)
+                        embeddings.append([0.0] * 768)
+            time.sleep(0.1)
+        return embeddings
 
 # 캐싱: 한번 확인된 모델명 재사용
 _verified_model_name = None
@@ -221,32 +307,15 @@ class RAGVectorStore:
 
     def __init__(self, api_key: str):
         self.client = chromadb.Client()
-        self.embed_fn = None
-
-        # Gemini 임베딩 모델 cascading fallback
-        for model_name in EMBED_MODELS:
-            # ChromaDB 버전에 따라 파라미터명이 다를 수 있음
-            for kwargs in [
-                {"api_key": api_key, "model_name": model_name},
-                {"api_key": api_key, "model_name": model_name.replace("models/", "")},
-            ]:
-                try:
-                    ef = embedding_functions.GoogleGenerativeAiEmbeddingFunction(**kwargs)
-                    ef(["test"])
-                    self.embed_fn = ef
-                    break
-                except Exception:
-                    continue
-            if self.embed_fn:
-                break
-
-        # 폴백: ChromaDB 기본 임베딩
-        if self.embed_fn is None:
+        # 커스텀 Gemini 임베딩 함수 사용 (ChromaDB 내장 함수 대신)
+        try:
+            self.embed_fn = GeminiEmbeddingFunction()
+        except Exception:
+            # 최종 폴백: ChromaDB 기본 임베딩
             try:
                 self.embed_fn = embedding_functions.DefaultEmbeddingFunction()
             except Exception:
                 self.embed_fn = None
-
         self.collections = {}
 
     def get_or_create_collection(self, name: str) -> chromadb.Collection:
