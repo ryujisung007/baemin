@@ -1,5 +1,5 @@
 streamlit
-playwright
-openai
+google-generativeai
 pandas
-xlsxwriter
+PyPDF2
+openpyxl
