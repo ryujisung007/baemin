@@ -297,13 +297,16 @@ with st.sidebar:
         st.session_state.gemini_api_key = api_key
         try:
             configure_gemini(api_key)
-            st.session_state.vector_store = RAGVectorStore(api_key)
             # 모델 접근 테스트
             model = get_flash_model()
             import rag_engine
             model_name = rag_engine._verified_model_name or "flash"
+            # 벡터 스토어 생성 (임베딩 모델 테스트 포함)
+            st.session_state.vector_store = RAGVectorStore(api_key)
+            embed_name = rag_engine._verified_embed_model or "default"
             st.session_state.api_configured = True
-            st.success(f"✅ API 연결 완료 ({model_name})")
+            st.success(f"✅ LLM: {model_name}")
+            st.success(f"✅ Embed: {embed_name}")
         except Exception as e:
             st.session_state.api_configured = False
             st.error(f"❌ API 연결 실패: {str(e)}")
