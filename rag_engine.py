@@ -1,175 +1,187 @@
 """
 RAG Engine: PDF 추출 → 청킹 → 벡터DB → Gemini 챗봇
 """
-import os, re, json, hashlib, time
+import os, re, json, hashlib, time, logging
 from typing import List, Dict, Optional, Tuple
 import google.generativeai as genai
 import chromadb
 from chromadb.utils import embedding_functions
 
-# ── Gemini 모델 설정 ──
-FLASH_MODELS = [
-    "gemini-2.5-flash",
-    "gemini-2.0-flash",
-    "gemini-2.5-flash-lite",
-]
-EMBED_MODELS = [
-    "gemini-embedding-001",
-    "text-embedding-004",
-]
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("rag_engine")
 
-# 검증된 임베딩 모델 캐싱
-_verified_embed_model = None
-
-
-def _find_embed_model() -> str:
-    """사용 가능한 임베딩 모델 찾기"""
-    global _verified_embed_model
-    if _verified_embed_model:
-        return _verified_embed_model
-
-    # 1차: list_models에서 embed 지원 모델 찾기
-    try:
-        for m in genai.list_models():
-            name = m.name.replace("models/", "") if hasattr(m, "name") else ""
-            methods = []
-            try:
-                methods = m.supported_generation_methods
-            except Exception:
-                pass
-            if "embedContent" in methods:
-                for candidate in EMBED_MODELS:
-                    if candidate in name:
-                        _verified_embed_model = name
-                        return name
-    except Exception:
-        pass
-
-    # 2차: 직접 호출 테스트
-    for model_name in EMBED_MODELS:
-        for name_variant in [model_name, f"models/{model_name}"]:
-            try:
-                genai.embed_content(model=name_variant, content="test")
-                _verified_embed_model = name_variant
-                return name_variant
-            except Exception:
-                continue
-
-    raise RuntimeError("사용 가능한 임베딩 모델이 없습니다.")
-
-
-class GeminiEmbeddingFunction:
-    """genai.embed_content를 직접 호출하는 커스텀 임베딩 함수 (ChromaDB 호환)"""
-
-    def __init__(self):
-        self.model_name = _find_embed_model()
-
-    def __call__(self, input: List[str]) -> List[List[float]]:
-        embeddings = []
-        # 배치 처리 (한번에 최대 100개)
-        for i in range(0, len(input), 100):
-            batch = input[i:i + 100]
-            try:
-                result = genai.embed_content(
-                    model=self.model_name,
-                    content=batch,
-                )
-                if hasattr(result, "embedding"):
-                    # 단일 텍스트 결과
-                    if isinstance(result.embedding[0], float):
-                        embeddings.append(result.embedding)
-                    else:
-                        embeddings.extend(result.embedding)
-                elif isinstance(result, dict) and "embedding" in result:
-                    emb = result["embedding"]
-                    if isinstance(emb[0], float):
-                        embeddings.append(emb)
-                    else:
-                        embeddings.extend(emb)
-                else:
-                    # 다른 형식 처리
-                    embeddings.extend(result["embedding"])
-            except Exception as e:
-                # 개별 처리 폴백
-                for text in batch:
-                    try:
-                        r = genai.embed_content(model=self.model_name, content=text)
-                        if hasattr(r, "embedding"):
-                            embeddings.append(r.embedding)
-                        else:
-                            embeddings.append(r["embedding"])
-                    except Exception:
-                        # 빈 벡터 (768차원)
-                        embeddings.append([0.0] * 768)
-            time.sleep(0.1)
-        return embeddings
-
-# 캐싱: 한번 확인된 모델명 재사용
+# ── 캐싱 ──
 _verified_model_name = None
+_verified_embed_model = None
+_debug_log = []  # UI에서 볼 수 있는 디버그 로그
+
+
+def get_debug_log() -> List[str]:
+    return _debug_log
+
+
+def _log(msg: str):
+    logger.info(msg)
+    _debug_log.append(msg)
 
 
 def configure_gemini(api_key: str):
-    """Gemini API 키 설정"""
-    global _verified_model_name
-    _verified_model_name = None  # API 키 변경 시 재검증
+    """Gemini API 키 설정 + 사용 가능한 모델 탐색"""
+    global _verified_model_name, _verified_embed_model
+    _verified_model_name = None
+    _verified_embed_model = None
+    _debug_log.clear()
     genai.configure(api_key=api_key)
+    _discover_models()
+
+
+def _discover_models():
+    """사용 가능한 모든 모델을 탐색하고 캐싱"""
+    global _verified_model_name, _verified_embed_model
+
+    gen_models = []
+    embed_models = []
+
+    # 1단계: list_models로 전체 목록 가져오기
+    try:
+        for m in genai.list_models():
+            name = str(m.name).replace("models/", "")
+            methods = getattr(m, "supported_generation_methods", [])
+            if not isinstance(methods, (list, tuple)):
+                methods = list(methods)
+
+            if "generateContent" in methods:
+                gen_models.append(name)
+            if "embedContent" in methods:
+                embed_models.append(name)
+
+        _log(f"[탐색] 생성모델 {len(gen_models)}개: {gen_models[:10]}")
+        _log(f"[탐색] 임베딩모델 {len(embed_models)}개: {embed_models[:10]}")
+    except Exception as e:
+        _log(f"[탐색] list_models 실패: {e}")
+
+    # 2단계: 생성 모델 선택
+    preferred_gen = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-2.5-flash-lite", "gemini-1.5-flash"]
+    for pref in preferred_gen:
+        for available in gen_models:
+            if pref == available or available.startswith(pref):
+                _verified_model_name = available
+                _log(f"[선택] 생성모델: {available}")
+                break
+        if _verified_model_name:
+            break
+
+    # 목록에서 못 찾으면 직접 호출 테스트
+    if not _verified_model_name:
+        for name in preferred_gen:
+            try:
+                model = genai.GenerativeModel(name)
+                model.generate_content("hi", generation_config={"max_output_tokens": 3})
+                _verified_model_name = name
+                _log(f"[선택] 생성모델(직접테스트): {name}")
+                break
+            except Exception as e:
+                _log(f"[실패] 생성모델 {name}: {e}")
+
+    # 3단계: 임베딩 모델 선택
+    preferred_embed = ["gemini-embedding-001", "text-embedding-004", "embedding-001"]
+    for pref in preferred_embed:
+        for available in embed_models:
+            if pref == available or available.startswith(pref):
+                # 실제 호출 테스트
+                model_str = f"models/{available}"
+                try:
+                    genai.embed_content(model=model_str, content="test")
+                    _verified_embed_model = model_str
+                    _log(f"[선택] 임베딩모델: {model_str}")
+                    break
+                except Exception as e:
+                    _log(f"[실패] 임베딩 {model_str}: {e}")
+        if _verified_embed_model:
+            break
+
+    # 목록에서 못 찾으면 모든 임베딩 모델 직접 테스트
+    if not _verified_embed_model:
+        _log("[탐색] 선호 모델 실패, 전체 임베딩 모델 테스트...")
+        for name in embed_models:
+            for fmt in [f"models/{name}", name]:
+                try:
+                    genai.embed_content(model=fmt, content="test")
+                    _verified_embed_model = fmt
+                    _log(f"[선택] 임베딩모델(전체탐색): {fmt}")
+                    break
+                except Exception as e:
+                    _log(f"[실패] 임베딩 {fmt}: {e}")
+            if _verified_embed_model:
+                break
+
+    # 그래도 못 찾으면 하드코딩 목록으로 직접 테스트
+    if not _verified_embed_model:
+        _log("[탐색] 목록 탐색 실패, 하드코딩 테스트...")
+        hardcoded = [
+            "models/gemini-embedding-001",
+            "models/text-embedding-004",
+            "gemini-embedding-001",
+            "text-embedding-004",
+            "models/embedding-001",
+            "embedding-001",
+        ]
+        for name in hardcoded:
+            try:
+                genai.embed_content(model=name, content="test")
+                _verified_embed_model = name
+                _log(f"[선택] 임베딩모델(하드코딩): {name}")
+                break
+            except Exception as e:
+                _log(f"[실패] 임베딩 {name}: {e}")
+
+    if not _verified_embed_model:
+        _log("[오류] 사용 가능한 임베딩 모델을 찾지 못했습니다!")
 
 
 def get_flash_model() -> genai.GenerativeModel:
-    """사용 가능한 Flash 모델 반환 (Cascading fallback)"""
-    global _verified_model_name
+    """검증된 Flash 모델 반환"""
+    if not _verified_model_name:
+        raise RuntimeError(
+            "생성 모델이 설정되지 않았습니다. API 키를 먼저 입력하세요.\n"
+            + "\n".join(_debug_log[-5:])
+        )
+    return genai.GenerativeModel(_verified_model_name)
 
-    # 이미 검증된 모델이 있으면 바로 반환
-    if _verified_model_name:
-        return genai.GenerativeModel(_verified_model_name)
 
-    # 사용 가능한 모델 목록 가져오기
-    available = set()
-    try:
-        for m in genai.list_models():
-            methods = []
-            try:
-                methods = m.supported_generation_methods
-            except AttributeError:
-                try:
-                    methods = [s.name for s in m.supported_generation_methods]
-                except Exception:
-                    pass
-            if "generateContent" in methods:
-                name = m.name if isinstance(m.name, str) else str(m.name)
-                available.add(name.replace("models/", ""))
-    except Exception:
-        pass
+class GeminiEmbeddingFunction:
+    """genai.embed_content를 직접 호출하는 ChromaDB 호환 임베딩 함수"""
 
-    # 1차: 목록에서 매칭
-    for model_name in FLASH_MODELS:
-        if model_name in available:
-            _verified_model_name = model_name
-            return genai.GenerativeModel(model_name)
-
-    # 2차: 목록에 flash가 포함된 모델 찾기
-    for name in sorted(available):
-        if "flash" in name and "live" not in name:
-            _verified_model_name = name
-            return genai.GenerativeModel(name)
-
-    # 3차: 직접 호출 테스트 (목록 API 실패 시)
-    for model_name in FLASH_MODELS:
-        try:
-            model = genai.GenerativeModel(model_name)
-            model.generate_content(
-                "hi",
-                generation_config={"max_output_tokens": 3},
+    def __init__(self):
+        if not _verified_embed_model:
+            raise RuntimeError(
+                "임베딩 모델이 설정되지 않았습니다.\n"
+                + "\n".join(_debug_log[-5:])
             )
-            _verified_model_name = model_name
-            return model
-        except Exception:
-            continue
+        self.model_name = _verified_embed_model
+        _log(f"[임베딩함수] 초기화: {self.model_name}")
 
-    raise RuntimeError(
-        "사용 가능한 Gemini Flash 모델이 없습니다.\n"
-        "API 키를 확인하고, https://aistudio.google.com/app/apikey 에서 재발급해보세요."
-    )
+    def __call__(self, input: List[str]) -> List[List[float]]:
+        embeddings = []
+        for i in range(0, len(input), 50):
+            batch = input[i:i + 50]
+            for text in batch:
+                try:
+                    result = genai.embed_content(
+                        model=self.model_name,
+                        content=text,
+                    )
+                    # 응답 형식 처리
+                    if hasattr(result, "embedding"):
+                        embeddings.append(result.embedding)
+                    elif isinstance(result, dict) and "embedding" in result:
+                        embeddings.append(result["embedding"])
+                    else:
+                        embeddings.append([0.0] * 768)
+                except Exception:
+                    embeddings.append([0.0] * 768)
+            time.sleep(0.05)
+        return embeddings
 
 
 # ============================================================
