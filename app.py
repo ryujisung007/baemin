@@ -297,44 +297,52 @@ with st.sidebar:
         value=st.session_state.gemini_api_key,
         placeholder="AIza...",
     )
-    if api_key and api_key != st.session_state.gemini_api_key:
-        st.session_state.gemini_api_key = api_key
-        try:
-            configure_gemini(api_key)
-            import rag_engine
-            gen_model = rag_engine._verified_model_name
-            emb_model = rag_engine._verified_embed_model
 
-            if not gen_model:
-                st.error("❌ 생성 모델을 찾지 못했습니다")
+    # ── 매 실행마다 genai 재설정 (Streamlit은 매번 스크립트를 재실행하므로 글로벌 변수가 리셋됨) ──
+    import rag_engine
+
+    if api_key:
+        # API 키가 바뀌었거나, 글로벌 변수가 리셋된 경우
+        need_init = (
+            api_key != st.session_state.gemini_api_key  # 새 키
+            or rag_engine._verified_model_name is None   # 글로벌 리셋됨
+        )
+
+        if need_init:
+            st.session_state.gemini_api_key = api_key
+            try:
+                configure_gemini(api_key)
+                gen_model = rag_engine._verified_model_name
+                emb_model = rag_engine._verified_embed_model
+
+                if not gen_model:
+                    st.error("❌ 생성 모델을 찾지 못했습니다")
+                    with st.expander("🔍 디버그 로그"):
+                        for line in get_debug_log():
+                            st.text(line)
+                    st.session_state.api_configured = False
+                elif not emb_model:
+                    st.error("❌ 임베딩 모델을 찾지 못했습니다")
+                    with st.expander("🔍 디버그 로그"):
+                        for line in get_debug_log():
+                            st.text(line)
+                    st.session_state.api_configured = False
+                else:
+                    # 벡터 스토어도 리셋 시 재생성
+                    if st.session_state.vector_store is None:
+                        st.session_state.vector_store = RAGVectorStore(api_key)
+                    st.session_state.api_configured = True
+                    st.success(f"✅ LLM: {gen_model}")
+                    st.success(f"✅ Embed: {emb_model}")
+            except Exception as e:
+                st.session_state.api_configured = False
+                st.error(f"❌ API 연결 실패: {str(e)}")
                 with st.expander("🔍 디버그 로그"):
                     for line in get_debug_log():
                         st.text(line)
-                st.session_state.api_configured = False
-                st.stop()
-
-            if not emb_model:
-                st.error("❌ 임베딩 모델을 찾지 못했습니다")
-                with st.expander("🔍 디버그 로그"):
-                    for line in get_debug_log():
-                        st.text(line)
-                st.session_state.api_configured = False
-                st.stop()
-
-            st.session_state.vector_store = RAGVectorStore(api_key)
-            st.session_state.api_configured = True
-            st.success(f"✅ LLM: {gen_model}")
-            st.success(f"✅ Embed: {emb_model}")
-        except Exception as e:
-            st.session_state.api_configured = False
-            st.error(f"❌ API 연결 실패: {str(e)}")
-            with st.expander("🔍 디버그 로그"):
-                for line in get_debug_log():
-                    st.text(line)
-                import traceback
-                st.code(traceback.format_exc())
-    elif api_key and st.session_state.api_configured:
-        st.success("✅ API 연결됨")
+        else:
+            # 이미 설정 완료
+            st.success("✅ API 연결됨")
 
     st.markdown("---")
 
