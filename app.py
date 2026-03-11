@@ -10,126 +10,119 @@ import subprocess
 import sys
 
 # ==========================================
-# 1. 초기 설정 및 시스템 구성
+# 1. 시스템 설정
 # ==========================================
 st.set_page_config(page_title="음료 R&D 실시간 대시보드", layout="wide")
 
 st.markdown("""
     <style>
     .stButton>button { width: 100%; border-radius: 8px; height: 3.5em; background-color: #007BFF; color: white; font-weight: bold; }
-    .status-card { padding: 15px; border-radius: 8px; border-left: 5px solid #007BFF; background-color: #f8f9fa; margin-bottom: 10px; }
-    .source-code { background-color: #2b2b2b; color: #a9b7c6; padding: 10px; border-radius: 5px; font-family: monospace; }
+    .status-log { padding: 10px; background-color: #f0f2f6; border-radius: 5px; font-family: 'Courier New', Courier, monospace; font-size: 0.9em; }
+    .data-card { padding: 15px; border: 1px solid #e6e9ef; border-radius: 10px; background-color: white; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🥤 실시간 음료 R&D 데이터 파이프라인 대시보드")
-st.sidebar.header("⚙️ 환경 설정")
+st.title("🥤 실시간 음료 R&D 데이터 가공 대시보드")
+st.sidebar.header("⚙️ API 설정")
 
 api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 client = OpenAI(api_key=api_key) if api_key else None
 
-# 브라우저 자동 설치 로직
-def ensure_browsers():
+def ensure_playwright():
+    """런타임 브라우저 설치 보장"""
     try:
         subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
     except Exception as e:
-        st.sidebar.error(f"브라우저 환경 준비 중: {e}")
+        st.sidebar.error(f"설치 알림: {e}")
 
 # ==========================================
-# 2. 데이터 수집 및 실시간 로그 모듈
+# 2. 실시간 데이터 파이프라인 시각화
 # ==========================================
-async def fetch_live_data(log_placeholder):
-    """데이터 수집 과정을 실시간으로 로그로 보여줍니다."""
-    ensure_browsers()
-    log_placeholder.info("🌐 배민외식업광장 서버 접속 중...")
+async def run_data_pipeline(log_placeholder):
+    ensure_playwright()
+    
+    log_placeholder.markdown("🔍 **[1/4]** 시스템 라이브러리 확인 및 브라우저 초기화 중...")
     
     async with async_playwright() as p:
         try:
-            browser = await p.chromium.launch(headless=True)
+            # 시니어 팁: 리눅스 환경 에러 방지를 위한 핵심 인자 추가
+            browser = await p.chromium.launch(
+                headless=True,
+                args=["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"]
+            )
             context = await browser.new_context(user_agent="Mozilla/5.0")
             page = await context.new_page()
             
-            target_url = "https://ceo.baemin.com/knowhow/articles?category=102"
-            log_placeholder.warning(f"🔗 타겟 URL 분석 중: {target_url}")
+            url = "https://ceo.baemin.com/knowhow/articles?category=102"
+            log_placeholder.markdown(f"🌐 **[2/4]** 타겟 데이터 소스 접속: `{url}`")
             
-            await page.goto(target_url, wait_until="networkidle", timeout=60000)
-            log_placeholder.success("✅ 페이지 로드 완료. 비정형 데이터 추출 시작...")
+            await page.goto(url, wait_until="networkidle", timeout=60000)
             
-            # 원본 제목 데이터 추출
+            log_placeholder.markdown("📂 **[3/4]** 비정형 텍스트 수집 및 파싱 중...")
             raw_titles = await page.locator("h3").all_inner_texts()
             await browser.close()
             
-            log_placeholder.write(f"🔍 총 {len(raw_titles)}개의 아티클 발견. 음료 트렌드 필터링 중...")
+            log_placeholder.markdown(f"✅ **[4/4]** 수집 완료! (총 {len(raw_titles)}건 확보)")
             
             keywords = ["음료", "카페", "커피", "티", "에이드", "과일", "저당", "제로", "식물성"]
             filtered = [t.strip() for t in raw_titles if any(k in t for k in keywords)]
             
-            return raw_titles, filtered # 원본 전체와 필터링 결과 반환
+            return raw_titles, filtered
         except Exception as e:
-            log_placeholder.error(f"❌ 데이터 수집 중단: {e}")
+            log_placeholder.error(f"❌ 파이프라인 중단: {str(e)}")
             return [], []
 
 # ==========================================
-# 3. AI 분석 프로세스 시각화
+# 3. 메인 대시보드 가동
 # ==========================================
-def ai_analysis_process(trends):
-    """AI가 데이터를 어떻게 해석하는지 과정을 보여줍니다."""
-    with st.expander("🧠 AI Thought Process (분석 논리 보기)", expanded=True):
-        st.write("1. **트렌드 추출**: 수집된 키워드에서 '헬시 플레저'와 '기능성' 상관관계 분석")
-        st.write("2. **표준 배합비 매칭**: 식품공전 및 글로벌 레시피 DB 기반 기초 배합비 산출")
-        st.write("3. **최적화**: 당류 저감 및 원가 효율성을 고려한 소재 재배치")
-    
-    prompt = f"""당신은 20년 경력의 식품기술사입니다. {trends} 기반으로 배합비를 설계하세요. 
-    반드시 마크다운 표 형식(|원료명|배합비(%)|사용 목적|비고|)을 포함할 것."""
-    
-    res = client.chat.completions.create(
-        model="gpt-4o-mini",
-        messages=[{"role": "system", "content": "식품 R&D 전문가"}, {"role": "user", "content": prompt}],
-        temperature=0.3
-    )
-    return res.choices[0].message.content
-
-# ==========================================
-# 4. 메인 대시보드 UI
-# ==========================================
-if st.button("🚀 실시간 R&D 파이프라인 가동"):
+if st.button("🚀 R&D 데이터 파이프라인 가동"):
     if not api_key:
-        st.error("OpenAI API Key가 필요합니다.")
+        st.error("API Key를 입력해 주세요.")
     else:
-        # 대시보드 레이아웃 구성
-        tab1, tab2, tab3 = st.tabs(["📡 실시간 수집", "분석 및 결과", "📊 데이터 자산화"])
+        # 대시보드 탭 구성
+        t_ingest, t_analyze, t_export = st.tabs(["📡 데이터 인입", "🧠 AI 가공 논리", "📊 최종 자산"])
         
-        with tab1:
-            st.subheader("Step 1: Raw Data Ingestion")
-            log_box = st.empty() # 실시간 로그용
-            raw_data, filtered_data = asyncio.run(fetch_live_data(log_box))
+        with t_ingest:
+            st.subheader("Raw Data Stream")
+            log_area = st.empty()
+            raw, filtered = asyncio.run(run_data_pipeline(log_area))
             
-            col1, col2 = st.columns(2)
-            with col1:
-                st.write("**[참조 중인 원본 데이터 전체]**")
-                st.caption("배민외식업광장에서 방금 긁어온 실제 제목들입니다.")
-                st.write(raw_data if raw_data else "데이터 없음")
-            with col2:
-                st.write("**[필터링된 핵심 트렌드]**")
-                st.info(filtered_data if filtered_data else "필터링된 데이터 없음")
+            c1, c2 = st.columns(2)
+            with c1:
+                st.write("**[원본 데이터 스트림]**")
+                st.write(raw if raw else "데이터 없음")
+            with c2:
+                st.write("**[필터링된 트렌드 시그널]**")
+                st.success(filtered if filtered else "필터링된 신호 없음")
 
-        with tab2:
-            st.subheader("Step 2: AI Logic Analysis")
-            if filtered_data:
-                report = ai_analysis_process(filtered_data)
-                st.markdown("---")
-                st.subheader("📝 최종 R&D 리포트")
+        with t_analyze:
+            st.subheader("AI R&D Processing")
+            if filtered:
+                with st.status("식품기술사 AI가 배합비를 산출하고 있습니다...") as s:
+                    st.write("- 트렌드 시그널 분석 중...")
+                    st.write("- 식품공전 기준 성분 검토 중...")
+                    st.write("- 최적 배합비 표 생성 중...")
+                    
+                    prompt = f"20년 차 식품기술사로서 {filtered} 트렌드 기반 음료 배합비를 표 형식(|원료명|배합비(%)|사용 목적|비고|)으로 상세히 작성하세요."
+                    res = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3
+                    )
+                    report = res.choices[0].message.content
+                    s.update(label="분석 완료", state="complete")
+                
                 st.markdown(report)
             else:
-                st.warning("분석할 트렌드 데이터가 부족합니다.")
+                st.warning("분석할 트렌드 데이터가 수집되지 않았습니다.")
 
-        with tab3:
-            st.subheader("Step 3: Structured Data Asset")
+        with t_export:
+            st.subheader("Final R&D Assets")
             if 'report' in locals():
-                # 표 추출 및 데이터프레임 시각화
-                table_match = re.search(r'\|.*\|(?:\n\|.*\|)*', report)
-                if table_match:
-                    lines = table_match.group(0).strip().split('\n')
+                # 표 파싱 및 데이터프레임 변환
+                match = re.search(r'\|.*\|(?:\n\|.*\|)*', report)
+                if match:
+                    lines = match.group(0).strip().split('\n')
                     headers = [c.strip() for c in lines[0].split('|')[1:-1]]
                     data = [[c.strip() for c in l.split('|')[1:-1]] for l in lines[2:]]
                     df = pd.DataFrame(data, columns=headers)
@@ -138,8 +131,8 @@ if st.button("🚀 실시간 R&D 파이프라인 가동"):
                     
                     output = io.BytesIO()
                     with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                        df.to_excel(writer, index=False, sheet_name='배합비')
-                    st.download_button("📥 배합비 엑셀 다운로드", data=output.getvalue(), file_name="Formulation.xlsx")
+                        df.to_excel(writer, index=False, sheet_name='Formulation')
+                    st.download_button("📥 배합비 엑셀 저장", data=output.getvalue(), file_name="R&D_Result.xlsx")
 
 st.sidebar.divider()
-st.sidebar.caption("Data Pipeline: Baemin CEO -> Playwright -> GPT-4o-mini -> Excel")
+st.sidebar.caption("Pipeline: Playwright Headless -> Regex Parsing -> GPT-4o-mini")
