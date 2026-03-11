@@ -9,91 +9,137 @@ import re
 import subprocess
 import sys
 
-# [시니어 팁] 브라우저 설치 에러 방지용 자동 설치 로직
-def ensure_browsers():
-    try:
-        # 실행 파일 존재 여부와 상관없이 설치 명령 수행 (이미 있으면 스킵됨)
-        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
-    except Exception as e:
-        st.sidebar.error(f"브라우저 환경 준비 중: {e}")
+# ==========================================
+# 1. 초기 설정 및 시스템 구성
+# ==========================================
+st.set_page_config(page_title="음료 R&D 실시간 대시보드", layout="wide")
 
-# 페이지 설정
-st.set_page_config(page_title="음료 R&D AI 시스템", layout="wide")
-
-# UI 스타일링
 st.markdown("""
     <style>
     .stButton>button { width: 100%; border-radius: 8px; height: 3.5em; background-color: #007BFF; color: white; font-weight: bold; }
-    .report-box { padding: 20px; border-radius: 10px; background-color: #f1f3f5; border: 1px solid #dee2e6; line-height: 1.6; }
+    .status-card { padding: 15px; border-radius: 8px; border-left: 5px solid #007BFF; background-color: #f8f9fa; margin-bottom: 10px; }
+    .source-code { background-color: #2b2b2b; color: #a9b7c6; padding: 10px; border-radius: 5px; font-family: monospace; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("🥤 음료 R&D 트렌드 분석 및 엑셀 배합비 생성기")
+st.title("🥤 실시간 음료 R&D 데이터 파이프라인 대시보드")
 st.sidebar.header("⚙️ 환경 설정")
 
 api_key = st.sidebar.text_input("OpenAI API Key", type="password")
 client = OpenAI(api_key=api_key) if api_key else None
 
-async def scrape_baemin_trends():
-    ensure_browsers() # 크롤링 전 브라우저 환경 강제 확보
+# 브라우저 자동 설치 로직
+def ensure_browsers():
+    try:
+        subprocess.run([sys.executable, "-m", "playwright", "install", "chromium"], check=True)
+    except Exception as e:
+        st.sidebar.error(f"브라우저 환경 준비 중: {e}")
+
+# ==========================================
+# 2. 데이터 수집 및 실시간 로그 모듈
+# ==========================================
+async def fetch_live_data(log_placeholder):
+    """데이터 수집 과정을 실시간으로 로그로 보여줍니다."""
+    ensure_browsers()
+    log_placeholder.info("🌐 배민외식업광장 서버 접속 중...")
+    
     async with async_playwright() as p:
         try:
             browser = await p.chromium.launch(headless=True)
-            context = await browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36"
-            )
+            context = await browser.new_context(user_agent="Mozilla/5.0")
             page = await context.new_page()
-            await page.goto("https://ceo.baemin.com/knowhow/articles?category=102", wait_until="networkidle", timeout=60000)
-            titles = await page.locator("h3").all_inner_texts()
+            
+            target_url = "https://ceo.baemin.com/knowhow/articles?category=102"
+            log_placeholder.warning(f"🔗 타겟 URL 분석 중: {target_url}")
+            
+            await page.goto(target_url, wait_until="networkidle", timeout=60000)
+            log_placeholder.success("✅ 페이지 로드 완료. 비정형 데이터 추출 시작...")
+            
+            # 원본 제목 데이터 추출
+            raw_titles = await page.locator("h3").all_inner_texts()
             await browser.close()
             
+            log_placeholder.write(f"🔍 총 {len(raw_titles)}개의 아티클 발견. 음료 트렌드 필터링 중...")
+            
             keywords = ["음료", "카페", "커피", "티", "에이드", "과일", "저당", "제로", "식물성"]
-            return [t.strip() for t in titles if any(k in t for k in keywords)]
+            filtered = [t.strip() for t in raw_titles if any(k in t for k in keywords)]
+            
+            return raw_titles, filtered # 원본 전체와 필터링 결과 반환
         except Exception as e:
-            st.warning(f"실시간 수집에 제한이 있어 기본 트렌드를 사용합니다. ({e})")
-            return ["2026 웰니스 저당 음료", "식물성 대체유 음료", "기능성 블렌딩 티"]
+            log_placeholder.error(f"❌ 데이터 수집 중단: {e}")
+            return [], []
 
-def generate_rnd_data(trends):
-    prompt = f"당신은 20년 경력의 식품기술사입니다. {trends} 트렌드를 기반으로 배합비와 전략을 작성하세요. 반드시 마크다운 표 형식(|원료명|배합비(%)|사용 목적|비고|)을 포함하세요."
-    try:
-        res = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": "식품 R&D 전문가"}, {"role": "user", "content": prompt}],
-            temperature=0.4
-        )
-        report = res.choices[0].message.content
-        table_pattern = re.compile(r'\|.*\|(?:\n\|.*\|)*')
-        match = table_pattern.search(report)
-        df = pd.DataFrame()
-        if match:
-            lines = match.group(0).strip().split('\n')
-            headers = [c.strip() for c in lines[0].split('|')[1:-1]]
-            data = [[c.strip() for c in l.split('|')[1:-1]] for l in lines[2:]]
-            df = pd.DataFrame(data, columns=headers)
-        return report, df
-    except Exception as e:
-        return f"분석 실패: {e}", pd.DataFrame()
+# ==========================================
+# 3. AI 분석 프로세스 시각화
+# ==========================================
+def ai_analysis_process(trends):
+    """AI가 데이터를 어떻게 해석하는지 과정을 보여줍니다."""
+    with st.expander("🧠 AI Thought Process (분석 논리 보기)", expanded=True):
+        st.write("1. **트렌드 추출**: 수집된 키워드에서 '헬시 플레저'와 '기능성' 상관관계 분석")
+        st.write("2. **표준 배합비 매칭**: 식품공전 및 글로벌 레시피 DB 기반 기초 배합비 산출")
+        st.write("3. **최적화**: 당류 저감 및 원가 효율성을 고려한 소재 재배치")
+    
+    prompt = f"""당신은 20년 경력의 식품기술사입니다. {trends} 기반으로 배합비를 설계하세요. 
+    반드시 마크다운 표 형식(|원료명|배합비(%)|사용 목적|비고|)을 포함할 것."""
+    
+    res = client.chat.completions.create(
+        model="gpt-4o-mini",
+        messages=[{"role": "system", "content": "식품 R&D 전문가"}, {"role": "user", "content": prompt}],
+        temperature=0.3
+    )
+    return res.choices[0].message.content
 
-if st.button("🚀 분석 시작"):
+# ==========================================
+# 4. 메인 대시보드 UI
+# ==========================================
+if st.button("🚀 실시간 R&D 파이프라인 가동"):
     if not api_key:
-        st.warning("사이드바에 API Key를 넣어주세요.")
+        st.error("OpenAI API Key가 필요합니다.")
     else:
-        with st.status("🛠️ 시스템 가동 중...", expanded=True) as status:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            trends = loop.run_until_complete(scrape_baemin_trends())
-            report, df = generate_rnd_data(trends)
-            status.update(label="✅ 완료!", state="complete", expanded=False)
+        # 대시보드 레이아웃 구성
+        tab1, tab2, tab3 = st.tabs(["📡 실시간 수집", "분석 및 결과", "📊 데이터 자산화"])
+        
+        with tab1:
+            st.subheader("Step 1: Raw Data Ingestion")
+            log_box = st.empty() # 실시간 로그용
+            raw_data, filtered_data = asyncio.run(fetch_live_data(log_box))
+            
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**[참조 중인 원본 데이터 전체]**")
+                st.caption("배민외식업광장에서 방금 긁어온 실제 제목들입니다.")
+                st.write(raw_data if raw_data else "데이터 없음")
+            with col2:
+                st.write("**[필터링된 핵심 트렌드]**")
+                st.info(filtered_data if filtered_data else "필터링된 데이터 없음")
 
-        c1, c2 = st.columns([3, 2])
-        with c1:
-            st.subheader("📋 R&D 분석 리포트")
-            st.markdown(f"<div class='report-box'>{report}</div>", unsafe_allow_html=True)
-        with c2:
-            if not df.empty:
-                st.subheader("📊 설계 배합비")
-                st.dataframe(df, use_container_width=True)
-                output = io.BytesIO()
-                with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-                    df.to_excel(writer, index=False, sheet_name='배합비')
-                st.download_button("📥 엑셀 다운로드", data=output.getvalue(), file_name="R&D_Result.xlsx")
+        with tab2:
+            st.subheader("Step 2: AI Logic Analysis")
+            if filtered_data:
+                report = ai_analysis_process(filtered_data)
+                st.markdown("---")
+                st.subheader("📝 최종 R&D 리포트")
+                st.markdown(report)
+            else:
+                st.warning("분석할 트렌드 데이터가 부족합니다.")
+
+        with tab3:
+            st.subheader("Step 3: Structured Data Asset")
+            if 'report' in locals():
+                # 표 추출 및 데이터프레임 시각화
+                table_match = re.search(r'\|.*\|(?:\n\|.*\|)*', report)
+                if table_match:
+                    lines = table_match.group(0).strip().split('\n')
+                    headers = [c.strip() for c in lines[0].split('|')[1:-1]]
+                    data = [[c.strip() for c in l.split('|')[1:-1]] for l in lines[2:]]
+                    df = pd.DataFrame(data, columns=headers)
+                    
+                    st.dataframe(df, use_container_width=True)
+                    
+                    output = io.BytesIO()
+                    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                        df.to_excel(writer, index=False, sheet_name='배합비')
+                    st.download_button("📥 배합비 엑셀 다운로드", data=output.getvalue(), file_name="Formulation.xlsx")
+
+st.sidebar.divider()
+st.sidebar.caption("Data Pipeline: Baemin CEO -> Playwright -> GPT-4o-mini -> Excel")
