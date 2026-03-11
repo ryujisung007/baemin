@@ -13,7 +13,10 @@ FLASH_MODELS = [
     "gemini-2.0-flash",
     "gemini-2.5-flash-lite",
 ]
-EMBED_MODEL = "models/text-embedding-004"
+EMBED_MODELS = [
+    "models/gemini-embedding-001",
+    "models/text-embedding-004",
+]
 
 # 캐싱: 한번 확인된 모델명 재사용
 _verified_model_name = None
@@ -218,17 +221,32 @@ class RAGVectorStore:
 
     def __init__(self, api_key: str):
         self.client = chromadb.Client()
-        try:
-            self.embed_fn = embedding_functions.GoogleGenerativeAiEmbeddingFunction(
-                api_key=api_key,
-                model_name=EMBED_MODEL,
-            )
-        except Exception:
-            # 폴백: ChromaDB 기본 임베딩 (sentence-transformers 또는 onnx)
+        self.embed_fn = None
+
+        # Gemini 임베딩 모델 cascading fallback
+        for model_name in EMBED_MODELS:
+            # ChromaDB 버전에 따라 파라미터명이 다를 수 있음
+            for kwargs in [
+                {"api_key": api_key, "model_name": model_name},
+                {"api_key": api_key, "model_name": model_name.replace("models/", "")},
+            ]:
+                try:
+                    ef = embedding_functions.GoogleGenerativeAiEmbeddingFunction(**kwargs)
+                    ef(["test"])
+                    self.embed_fn = ef
+                    break
+                except Exception:
+                    continue
+            if self.embed_fn:
+                break
+
+        # 폴백: ChromaDB 기본 임베딩
+        if self.embed_fn is None:
             try:
                 self.embed_fn = embedding_functions.DefaultEmbeddingFunction()
             except Exception:
                 self.embed_fn = None
+
         self.collections = {}
 
     def get_or_create_collection(self, name: str) -> chromadb.Collection:
