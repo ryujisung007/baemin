@@ -12,9 +12,6 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-# =========================================================
-# 기본 설정
-# =========================================================
 st.set_page_config(
     page_title="오픈AI&식품정보원 음료개발 플랫폼",
     page_icon="🤖",
@@ -24,72 +21,6 @@ st.set_page_config(
 
 DEFAULT_EXCEL_PATH = "beverage_AI_DB_v1.xlsx"
 
-# =========================================================
-# 디자인
-# =========================================================
-st.markdown(
-    """
-    <style>
-    .stApp {
-        background: linear-gradient(180deg, #0b1220 0%, #101a2f 100%);
-        color: #f4f7fb;
-    }
-    .main-title {
-        font-size: 2.1rem;
-        font-weight: 800;
-        color: #f8fbff;
-        margin-bottom: 0.2rem;
-    }
-    .sub-title {
-        font-size: 1rem;
-        color: #a9bdd8;
-        margin-bottom: 1.2rem;
-    }
-    .robot-card {
-        background: rgba(20, 31, 55, 0.82);
-        border: 1px solid rgba(92, 189, 255, 0.22);
-        border-radius: 18px;
-        padding: 16px 18px;
-        box-shadow: 0 6px 24px rgba(0,0,0,0.18);
-    }
-    .section-title {
-        font-size: 1.2rem;
-        font-weight: 700;
-        color: #dff4ff;
-        margin-top: 0.6rem;
-        margin-bottom: 0.4rem;
-    }
-    .pill {
-        display: inline-block;
-        padding: 6px 10px;
-        border-radius: 999px;
-        background: rgba(91, 198, 255, 0.16);
-        color: #dff7ff;
-        margin-right: 8px;
-        margin-bottom: 6px;
-        font-size: 0.86rem;
-    }
-    .reason-box {
-        background: rgba(9, 17, 33, 0.82);
-        border-left: 4px solid #61d8ff;
-        padding: 10px 12px;
-        border-radius: 10px;
-        margin-bottom: 8px;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
-
-st.markdown('<div class="main-title">🤖 오픈AI&식품정보원 음료개발 플랫폼</div>', unsafe_allow_html=True)
-st.markdown(
-    '<div class="sub-title">식품연구소 자동화 로봇 버전 · 트렌드 추천 · 원재료 생성 · 자동 배합 · 평가보고서 · 이미지 생성</div>',
-    unsafe_allow_html=True,
-)
-
-# =========================================================
-# 상수 / 템플릿
-# =========================================================
 UI_BEVERAGE_TYPES = [
     "탄산음료",
     "과채음료",
@@ -227,9 +158,6 @@ INTENSITY_LABELS = {
 }
 
 
-# =========================================================
-# 데이터 클래스
-# =========================================================
 @dataclass
 class FormulaSummary:
     total_brix: float
@@ -240,9 +168,6 @@ class FormulaSummary:
     score: float
 
 
-# =========================================================
-# 유틸
-# =========================================================
 def safe_float(value, default=0.0) -> float:
     try:
         if value is None or (isinstance(value, float) and math.isnan(value)):
@@ -270,47 +195,28 @@ def normalize_columns(df: pd.DataFrame) -> pd.DataFrame:
         "Flavor": "Flavor",
         "Flavor_Name": "Flavor",
         "Brix(°)": "Brix",
-        "Brix": "Brix",
-        "브릭스": "Brix",
-        "pH": "pH",
         "산도(%)": "Acidity",
         "Acidity": "Acidity",
         "산도": "Acidity",
         "감미도": "Sweetness",
-        "Sweetness": "Sweetness",
         "Sweetness_Index": "Sweetness",
         "예상단가(원/kg)": "Cost",
-        "단가": "Cost",
         "Cost_per_kg": "Cost",
-        "Cost": "Cost",
+        "단가": "Cost",
         "Brix기여도(1%)": "Brix_Contribution",
-        "Brix_Contribution": "Brix_Contribution",
         "산도기여도(1%)": "Acid_Contribution",
-        "Acid_Contribution": "Acid_Contribution",
         "pH영향도(1%)": "pH_Effect",
-        "pH_Effect": "pH_Effect",
-        "FlavorContribution": "FlavorContribution",
-        "Purpose": "Purpose",
-        "pKa1": "pKa1",
-        "pKa2": "pKa2",
         "Buffer_Capacity(β)": "Buffer_Capacity",
-        "Buffer_Capacity": "Buffer_Capacity",
         "β": "Buffer_Capacity",
-        "pH_Model_Type": "pH_Model_Type",
         "Ingredient_ID": "Ingredient_ID",
         "Flavor_ID": "Flavor_ID",
         "Ingredient_Role": "Ingredient_Role",
         "Role": "Ingredient_Role",
-        "Typical_Range_Min_%": "Typical_Range_Min",
-        "Typical_Range_Max_%": "Typical_Range_Max",
-        "Typical_Range_Min": "Typical_Range_Min",
-        "Typical_Range_Max": "Typical_Range_Max",
-        "Beverage_Type": "Beverage_Type",
         "Function": "Function",
-        "Color": "Color",
         "Origin": "Origin",
         "Supplier": "Supplier",
         "Solubility": "Solubility",
+        "Color": "Color",
     }
     return df.rename(columns=rename_map)
 
@@ -327,7 +233,6 @@ def enforce_numeric(df: pd.DataFrame, cols: List[str]) -> pd.DataFrame:
 def robust_json_extract(text: str) -> Optional[dict]:
     if not text or not isinstance(text, str):
         return None
-
     try:
         return json.loads(text)
     except Exception:
@@ -385,500 +290,269 @@ def role_to_categories(role: str) -> List[str]:
     return role_map.get(role, [role])
 
 
+def ensure_formula_schema(df: pd.DataFrame, beverage_type: str) -> pd.DataFrame:
+    """
+    자동배합비 계산 전에 반드시 필요한 컬럼을 강제로 보정한다.
+    """
+    if df is None or not isinstance(df, pd.DataFrame) or df.empty:
+        return pd.DataFrame(columns=[
+            "Ingredient_Name", "Category", "Ingredient_Role",
+            "Brix", "pH", "Acidity", "Sweetness", "Cost",
+            "Brix_Contribution", "Acid_Contribution", "pH_Effect",
+            "Typical_Range_Min", "Typical_Range_Max",
+            "FlavorContribution", "Purpose", "Usage_%"
+        ])
+
+    df = normalize_columns(df.copy())
+
+    defaults = {
+        "Ingredient_Name": "",
+        "Category": "",
+        "Ingredient_Role": "",
+        "Brix": 0.0,
+        "pH": 7.0,
+        "Acidity": 0.0,
+        "Sweetness": 0.0,
+        "Cost": 0.0,
+        "Brix_Contribution": 0.0,
+        "Acid_Contribution": 0.0,
+        "pH_Effect": 0.0,
+        "Typical_Range_Min": 0.0,
+        "Typical_Range_Max": 0.0,
+        "FlavorContribution": 0.0,
+        "Purpose": "",
+        "Usage_%": 0.0,
+    }
+
+    for col, default in defaults.items():
+        if col not in df.columns:
+            df[col] = default
+
+    numeric_cols = [
+        "Brix", "pH", "Acidity", "Sweetness", "Cost",
+        "Brix_Contribution", "Acid_Contribution", "pH_Effect",
+        "Typical_Range_Min", "Typical_Range_Max", "FlavorContribution", "Usage_%"
+    ]
+    df = enforce_numeric(df, numeric_cols)
+
+    # Ingredient_Role 비어 있으면 Category로 추론
+    missing_role = df["Ingredient_Role"].astype(str).str.strip() == ""
+    if missing_role.any():
+        for idx in df[missing_role].index:
+            cat = str(df.at[idx, "Category"]).strip()
+            inferred = ""
+            if cat == "Water":
+                inferred = "Water"
+            elif cat == "Sugar":
+                inferred = "Sugar"
+            elif cat == "Sweetener":
+                inferred = "Sweetener"
+            elif cat == "Acid":
+                inferred = "Acid"
+            elif cat in ["Concentrate", "Extract"]:
+                inferred = "Flavor"
+            elif cat == "Stabilizer":
+                inferred = "Stabilizer"
+            elif cat == "Color":
+                inferred = "Color"
+            elif cat == "Vitamin":
+                inferred = "Vitamin"
+            elif cat == "Functional":
+                inferred = "Functional"
+            elif cat == "Electrolyte":
+                inferred = "Electrolyte"
+            df.at[idx, "Ingredient_Role"] = inferred
+
+    # 필수 역할 보충
+    existing_roles = set(df["Ingredient_Role"].astype(str).tolist())
+    needed_roles = list(TYPE_TEMPLATES.get(beverage_type, {}).keys())
+
+    for role in needed_roles:
+        if role in existing_roles:
+            continue
+        row = {
+            "Ingredient_Name": f"Auto_{role}",
+            "Category": role_to_categories(role)[0] if role_to_categories(role) else role,
+            "Ingredient_Role": role,
+            "Brix": 0.0,
+            "pH": 7.0 if role == "Water" else 4.0,
+            "Acidity": 0.0,
+            "Sweetness": 0.0,
+            "Cost": 0.0,
+            "Brix_Contribution": 0.0,
+            "Acid_Contribution": 0.0,
+            "pH_Effect": 0.0,
+            "Typical_Range_Min": TYPE_TEMPLATES[beverage_type][role][0],
+            "Typical_Range_Max": TYPE_TEMPLATES[beverage_type][role][1],
+            "FlavorContribution": 0.0,
+            "Purpose": role,
+            "Usage_%": 0.0,
+        }
+        df = pd.concat([df, pd.DataFrame([row])], ignore_index=True)
+
+    return df.reset_index(drop=True)
+
+
 def map_intensity_to_value(level: int, low: float, high: float) -> float:
     ratio = {1: 0.10, 2: 0.30, 3: 0.50, 4: 0.75, 5: 0.95}.get(level, 0.50)
     return round(low + (high - low) * ratio, 4)
 
 
-# =========================================================
-# 샘플 DB
-# =========================================================
 def build_sample_ingredient_master() -> pd.DataFrame:
     rows = [
-        {"Ingredient_ID": 1, "Ingredient_Name": "정제수", "Category": "Water", "Sub_Category": "Base", "Origin": "국내", "Supplier": "Sample", "Cost": 5, "Solubility": "High", "Color": "Clear"},
-        {"Ingredient_ID": 2, "Ingredient_Name": "설탕", "Category": "Sugar", "Sub_Category": "Sucrose", "Origin": "수입", "Supplier": "Sample", "Cost": 1200, "Solubility": "High", "Color": "White"},
-        {"Ingredient_ID": 3, "Ingredient_Name": "액상과당", "Category": "Sugar", "Sub_Category": "HFCS", "Origin": "국내", "Supplier": "Sample", "Cost": 900, "Solubility": "High", "Color": "Clear"},
-        {"Ingredient_ID": 4, "Ingredient_Name": "수크랄로스", "Category": "Sweetener", "Sub_Category": "HighIntensity", "Origin": "수입", "Supplier": "Sample", "Cost": 150000, "Solubility": "High", "Color": "White"},
-        {"Ingredient_ID": 5, "Ingredient_Name": "아세설팜K", "Category": "Sweetener", "Sub_Category": "HighIntensity", "Origin": "수입", "Supplier": "Sample", "Cost": 98000, "Solubility": "High", "Color": "White"},
-        {"Ingredient_ID": 6, "Ingredient_Name": "구연산", "Category": "Acid", "Sub_Category": "Citric", "Origin": "수입", "Supplier": "Sample", "Cost": 3500, "Solubility": "High", "Color": "White"},
-        {"Ingredient_ID": 7, "Ingredient_Name": "사과산", "Category": "Acid", "Sub_Category": "Malic", "Origin": "수입", "Supplier": "Sample", "Cost": 4200, "Solubility": "High", "Color": "White"},
-        {"Ingredient_ID": 8, "Ingredient_Name": "인산", "Category": "Acid", "Sub_Category": "Phosphoric", "Origin": "수입", "Supplier": "Sample", "Cost": 2800, "Solubility": "High", "Color": "Clear"},
-        {"Ingredient_ID": 9, "Ingredient_Name": "녹차추출물", "Category": "Extract", "Sub_Category": "Tea", "Origin": "국내", "Supplier": "Sample", "Cost": 45000, "Solubility": "Medium", "Color": "Brown"},
-        {"Ingredient_ID": 10, "Ingredient_Name": "생강추출물", "Category": "Extract", "Sub_Category": "Spice", "Origin": "국내", "Supplier": "Sample", "Cost": 38000, "Solubility": "Medium", "Color": "Yellow"},
-        {"Ingredient_ID": 11, "Ingredient_Name": "히비스커스추출물", "Category": "Extract", "Sub_Category": "Botanical", "Origin": "수입", "Supplier": "Sample", "Cost": 41000, "Solubility": "Medium", "Color": "Red"},
-        {"Ingredient_ID": 12, "Ingredient_Name": "레몬농축액", "Category": "Concentrate", "Sub_Category": "Citrus", "Origin": "수입", "Supplier": "Sample", "Cost": 8000, "Solubility": "High", "Color": "Yellow"},
-        {"Ingredient_ID": 13, "Ingredient_Name": "오렌지농축액", "Category": "Concentrate", "Sub_Category": "Citrus", "Origin": "수입", "Supplier": "Sample", "Cost": 7000, "Solubility": "High", "Color": "Orange"},
-        {"Ingredient_ID": 14, "Ingredient_Name": "사과농축액", "Category": "Concentrate", "Sub_Category": "Fruit", "Origin": "수입", "Supplier": "Sample", "Cost": 6500, "Solubility": "High", "Color": "Amber"},
-        {"Ingredient_ID": 15, "Ingredient_Name": "망고농축액", "Category": "Concentrate", "Sub_Category": "Tropical", "Origin": "수입", "Supplier": "Sample", "Cost": 8200, "Solubility": "High", "Color": "Orange"},
-        {"Ingredient_ID": 16, "Ingredient_Name": "복숭아농축액", "Category": "Concentrate", "Sub_Category": "StoneFruit", "Origin": "수입", "Supplier": "Sample", "Cost": 7800, "Solubility": "High", "Color": "Orange"},
-        {"Ingredient_ID": 17, "Ingredient_Name": "포도농축액", "Category": "Concentrate", "Sub_Category": "Berry", "Origin": "수입", "Supplier": "Sample", "Cost": 7200, "Solubility": "High", "Color": "Purple"},
-        {"Ingredient_ID": 18, "Ingredient_Name": "파인애플농축액", "Category": "Concentrate", "Sub_Category": "Tropical", "Origin": "수입", "Supplier": "Sample", "Cost": 7500, "Solubility": "High", "Color": "Yellow"},
-        {"Ingredient_ID": 19, "Ingredient_Name": "펙틴", "Category": "Stabilizer", "Sub_Category": "Hydrocolloid", "Origin": "수입", "Supplier": "Sample", "Cost": 22000, "Solubility": "Medium", "Color": "White"},
-        {"Ingredient_ID": 20, "Ingredient_Name": "잔탄검", "Category": "Stabilizer", "Sub_Category": "Hydrocolloid", "Origin": "수입", "Supplier": "Sample", "Cost": 18000, "Solubility": "Medium", "Color": "Cream"},
-        {"Ingredient_ID": 21, "Ingredient_Name": "카라멜색소", "Category": "Color", "Sub_Category": "Brown", "Origin": "국내", "Supplier": "Sample", "Cost": 6000, "Solubility": "High", "Color": "Brown"},
-        {"Ingredient_ID": 22, "Ingredient_Name": "베타카로틴", "Category": "Color", "Sub_Category": "Orange", "Origin": "수입", "Supplier": "Sample", "Cost": 50000, "Solubility": "Low", "Color": "Orange"},
-        {"Ingredient_ID": 23, "Ingredient_Name": "안토시아닌색소", "Category": "Color", "Sub_Category": "RedPurple", "Origin": "수입", "Supplier": "Sample", "Cost": 47000, "Solubility": "Medium", "Color": "Purple"},
-        {"Ingredient_ID": 24, "Ingredient_Name": "비타민C", "Category": "Vitamin", "Sub_Category": "VitaminC", "Origin": "수입", "Supplier": "Sample", "Cost": 15000, "Solubility": "High", "Color": "White"},
-        {"Ingredient_ID": 25, "Ingredient_Name": "비타민B군믹스", "Category": "Vitamin", "Sub_Category": "VitaminB", "Origin": "수입", "Supplier": "Sample", "Cost": 30000, "Solubility": "High", "Color": "Yellow"},
-        {"Ingredient_ID": 26, "Ingredient_Name": "타우린", "Category": "Functional", "Sub_Category": "AminoAcid", "Origin": "수입", "Supplier": "Sample", "Cost": 18000, "Solubility": "High", "Color": "White"},
-        {"Ingredient_ID": 27, "Ingredient_Name": "카페인", "Category": "Functional", "Sub_Category": "Stimulant", "Origin": "수입", "Supplier": "Sample", "Cost": 95000, "Solubility": "Medium", "Color": "White"},
-        {"Ingredient_ID": 28, "Ingredient_Name": "L-카르니틴", "Category": "Functional", "Sub_Category": "Functional", "Origin": "수입", "Supplier": "Sample", "Cost": 65000, "Solubility": "High", "Color": "White"},
-        {"Ingredient_ID": 29, "Ingredient_Name": "염화나트륨", "Category": "Electrolyte", "Sub_Category": "Na", "Origin": "국내", "Supplier": "Sample", "Cost": 800, "Solubility": "High", "Color": "White"},
-        {"Ingredient_ID": 30, "Ingredient_Name": "염화칼륨", "Category": "Electrolyte", "Sub_Category": "K", "Origin": "수입", "Supplier": "Sample", "Cost": 2500, "Solubility": "High", "Color": "White"},
+        {"Ingredient_ID": 1, "Ingredient_Name": "정제수", "Category": "Water", "Cost": 5},
+        {"Ingredient_ID": 2, "Ingredient_Name": "설탕", "Category": "Sugar", "Cost": 1200},
+        {"Ingredient_ID": 3, "Ingredient_Name": "액상과당", "Category": "Sugar", "Cost": 900},
+        {"Ingredient_ID": 4, "Ingredient_Name": "수크랄로스", "Category": "Sweetener", "Cost": 150000},
+        {"Ingredient_ID": 5, "Ingredient_Name": "아세설팜K", "Category": "Sweetener", "Cost": 98000},
+        {"Ingredient_ID": 6, "Ingredient_Name": "구연산", "Category": "Acid", "Cost": 3500},
+        {"Ingredient_ID": 7, "Ingredient_Name": "사과산", "Category": "Acid", "Cost": 4200},
+        {"Ingredient_ID": 8, "Ingredient_Name": "인산", "Category": "Acid", "Cost": 2800},
+        {"Ingredient_ID": 9, "Ingredient_Name": "녹차추출물", "Category": "Extract", "Cost": 45000},
+        {"Ingredient_ID": 10, "Ingredient_Name": "생강추출물", "Category": "Extract", "Cost": 38000},
+        {"Ingredient_ID": 11, "Ingredient_Name": "히비스커스추출물", "Category": "Extract", "Cost": 41000},
+        {"Ingredient_ID": 12, "Ingredient_Name": "레몬농축액", "Category": "Concentrate", "Cost": 8000},
+        {"Ingredient_ID": 13, "Ingredient_Name": "오렌지농축액", "Category": "Concentrate", "Cost": 7000},
+        {"Ingredient_ID": 14, "Ingredient_Name": "사과농축액", "Category": "Concentrate", "Cost": 6500},
+        {"Ingredient_ID": 15, "Ingredient_Name": "망고농축액", "Category": "Concentrate", "Cost": 8200},
+        {"Ingredient_ID": 16, "Ingredient_Name": "복숭아농축액", "Category": "Concentrate", "Cost": 7800},
+        {"Ingredient_ID": 17, "Ingredient_Name": "포도농축액", "Category": "Concentrate", "Cost": 7200},
+        {"Ingredient_ID": 18, "Ingredient_Name": "파인애플농축액", "Category": "Concentrate", "Cost": 7500},
+        {"Ingredient_ID": 19, "Ingredient_Name": "펙틴", "Category": "Stabilizer", "Cost": 22000},
+        {"Ingredient_ID": 20, "Ingredient_Name": "잔탄검", "Category": "Stabilizer", "Cost": 18000},
+        {"Ingredient_ID": 21, "Ingredient_Name": "카라멜색소", "Category": "Color", "Cost": 6000},
+        {"Ingredient_ID": 22, "Ingredient_Name": "베타카로틴", "Category": "Color", "Cost": 50000},
+        {"Ingredient_ID": 23, "Ingredient_Name": "비타민C", "Category": "Vitamin", "Cost": 15000},
+        {"Ingredient_ID": 24, "Ingredient_Name": "비타민B군믹스", "Category": "Vitamin", "Cost": 30000},
+        {"Ingredient_ID": 25, "Ingredient_Name": "타우린", "Category": "Functional", "Cost": 18000},
+        {"Ingredient_ID": 26, "Ingredient_Name": "카페인", "Category": "Functional", "Cost": 95000},
+        {"Ingredient_ID": 27, "Ingredient_Name": "L-카르니틴", "Category": "Functional", "Cost": 65000},
+        {"Ingredient_ID": 28, "Ingredient_Name": "염화나트륨", "Category": "Electrolyte", "Cost": 800},
+        {"Ingredient_ID": 29, "Ingredient_Name": "염화칼륨", "Category": "Electrolyte", "Cost": 2500},
     ]
     return pd.DataFrame(rows)
 
 
 def build_sample_ingredient_property() -> pd.DataFrame:
     rows = [
-        {"Ingredient_ID": 1, "Brix": 0.0, "pH": 7.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.0, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 2, "Brix": 100.0, "pH": 7.0, "Acidity": 0.0, "Sweetness": 1.0, "Brix_Contribution": 1.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.0, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 3, "Brix": 77.0, "pH": 6.5, "Acidity": 0.0, "Sweetness": 1.1, "Brix_Contribution": 0.77, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.0, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 4, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 600.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.0, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 5, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 200.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.0, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 6, "Brix": 0.0, "pH": 2.2, "Acidity": 100.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 1.0, "pH_Effect": -0.30, "pKa1": 3.13, "pKa2": 4.76, "Buffer_Capacity": 0.40, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 7, "Brix": 0.0, "pH": 2.6, "Acidity": 100.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 1.0, "pH_Effect": -0.25, "pKa1": 3.40, "pKa2": 5.11, "Buffer_Capacity": 0.35, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 8, "Brix": 0.0, "pH": 1.8, "Acidity": 85.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.85, "pH_Effect": -0.35, "pKa1": 2.15, "pKa2": 7.20, "Buffer_Capacity": 0.45, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 9, "Brix": 2.0, "pH": 5.8, "Acidity": 0.2, "Sweetness": 0.1, "Brix_Contribution": 0.02, "Acid_Contribution": 0.002, "pH_Effect": -0.002, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.05, "pH_Model_Type": "linear"},
-        {"Ingredient_ID": 10, "Brix": 4.0, "pH": 5.2, "Acidity": 0.3, "Sweetness": 0.1, "Brix_Contribution": 0.04, "Acid_Contribution": 0.003, "pH_Effect": -0.003, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.06, "pH_Model_Type": "linear"},
-        {"Ingredient_ID": 11, "Brix": 3.0, "pH": 3.1, "Acidity": 0.8, "Sweetness": 0.2, "Brix_Contribution": 0.03, "Acid_Contribution": 0.008, "pH_Effect": -0.010, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.07, "pH_Model_Type": "linear"},
-        {"Ingredient_ID": 12, "Brix": 65.0, "pH": 2.2, "Acidity": 6.5, "Sweetness": 0.8, "Brix_Contribution": 0.65, "Acid_Contribution": 0.065, "pH_Effect": -0.060, "pKa1": 3.13, "pKa2": 4.76, "Buffer_Capacity": 0.35, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 13, "Brix": 65.0, "pH": 3.2, "Acidity": 1.2, "Sweetness": 0.9, "Brix_Contribution": 0.65, "Acid_Contribution": 0.012, "pH_Effect": -0.012, "pKa1": 3.40, "pKa2": 4.76, "Buffer_Capacity": 0.18, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 14, "Brix": 70.0, "pH": 3.5, "Acidity": 0.8, "Sweetness": 0.9, "Brix_Contribution": 0.70, "Acid_Contribution": 0.008, "pH_Effect": -0.008, "pKa1": 3.40, "pKa2": 5.11, "Buffer_Capacity": 0.15, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 15, "Brix": 65.0, "pH": 3.6, "Acidity": 0.9, "Sweetness": 1.0, "Brix_Contribution": 0.65, "Acid_Contribution": 0.009, "pH_Effect": -0.009, "pKa1": 3.40, "pKa2": 5.11, "Buffer_Capacity": 0.16, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 16, "Brix": 66.0, "pH": 3.5, "Acidity": 0.7, "Sweetness": 0.9, "Brix_Contribution": 0.66, "Acid_Contribution": 0.007, "pH_Effect": -0.007, "pKa1": 3.40, "pKa2": 5.11, "Buffer_Capacity": 0.14, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 17, "Brix": 68.0, "pH": 3.4, "Acidity": 0.7, "Sweetness": 0.8, "Brix_Contribution": 0.68, "Acid_Contribution": 0.007, "pH_Effect": -0.007, "pKa1": 3.40, "pKa2": 5.11, "Buffer_Capacity": 0.14, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 18, "Brix": 60.0, "pH": 3.3, "Acidity": 1.5, "Sweetness": 0.9, "Brix_Contribution": 0.60, "Acid_Contribution": 0.015, "pH_Effect": -0.015, "pKa1": 3.40, "pKa2": 5.11, "Buffer_Capacity": 0.18, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 19, "Brix": 0.0, "pH": 4.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.05, "pH_Model_Type": "linear"},
-        {"Ingredient_ID": 20, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.05, "pH_Model_Type": "linear"},
-        {"Ingredient_ID": 21, "Brix": 0.0, "pH": 4.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.0, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 22, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.0, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 23, "Brix": 0.0, "pH": 4.0, "Acidity": 0.1, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.001, "pH_Effect": -0.001, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.0, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 24, "Brix": 0.0, "pH": 2.4, "Acidity": 100.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 1.0, "pH_Effect": -0.26, "pKa1": 4.10, "pKa2": 11.60, "Buffer_Capacity": 0.25, "pH_Model_Type": "buffered"},
-        {"Ingredient_ID": 25, "Brix": 0.0, "pH": 5.0, "Acidity": 0.2, "Sweetness": 0.1, "Brix_Contribution": 0.0, "Acid_Contribution": 0.002, "pH_Effect": -0.002, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.05, "pH_Model_Type": "linear"},
-        {"Ingredient_ID": 26, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.05, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 27, "Brix": 0.0, "pH": 6.5, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 14.0, "pKa2": 0.0, "Buffer_Capacity": 0.01, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 28, "Brix": 0.0, "pH": 6.5, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.02, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 29, "Brix": 0.0, "pH": 7.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.01, "pH_Model_Type": "neutral"},
-        {"Ingredient_ID": 30, "Brix": 0.0, "pH": 7.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0, "pKa1": 0.0, "pKa2": 0.0, "Buffer_Capacity": 0.01, "pH_Model_Type": "neutral"},
+        {"Ingredient_ID": 1, "Brix": 0.0, "pH": 7.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 2, "Brix": 100.0, "pH": 7.0, "Acidity": 0.0, "Sweetness": 1.0, "Brix_Contribution": 1.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 3, "Brix": 77.0, "pH": 6.5, "Acidity": 0.0, "Sweetness": 1.1, "Brix_Contribution": 0.77, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 4, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 600.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 5, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 200.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 6, "Brix": 0.0, "pH": 2.2, "Acidity": 100.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 1.0, "pH_Effect": -0.30},
+        {"Ingredient_ID": 7, "Brix": 0.0, "pH": 2.6, "Acidity": 100.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 1.0, "pH_Effect": -0.25},
+        {"Ingredient_ID": 8, "Brix": 0.0, "pH": 1.8, "Acidity": 85.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.85, "pH_Effect": -0.35},
+        {"Ingredient_ID": 9, "Brix": 2.0, "pH": 5.8, "Acidity": 0.2, "Sweetness": 0.1, "Brix_Contribution": 0.02, "Acid_Contribution": 0.002, "pH_Effect": -0.002},
+        {"Ingredient_ID": 10, "Brix": 4.0, "pH": 5.2, "Acidity": 0.3, "Sweetness": 0.1, "Brix_Contribution": 0.04, "Acid_Contribution": 0.003, "pH_Effect": -0.003},
+        {"Ingredient_ID": 11, "Brix": 3.0, "pH": 3.1, "Acidity": 0.8, "Sweetness": 0.2, "Brix_Contribution": 0.03, "Acid_Contribution": 0.008, "pH_Effect": -0.010},
+        {"Ingredient_ID": 12, "Brix": 65.0, "pH": 2.2, "Acidity": 6.5, "Sweetness": 0.8, "Brix_Contribution": 0.65, "Acid_Contribution": 0.065, "pH_Effect": -0.060},
+        {"Ingredient_ID": 13, "Brix": 65.0, "pH": 3.2, "Acidity": 1.2, "Sweetness": 0.9, "Brix_Contribution": 0.65, "Acid_Contribution": 0.012, "pH_Effect": -0.012},
+        {"Ingredient_ID": 14, "Brix": 70.0, "pH": 3.5, "Acidity": 0.8, "Sweetness": 0.9, "Brix_Contribution": 0.70, "Acid_Contribution": 0.008, "pH_Effect": -0.008},
+        {"Ingredient_ID": 15, "Brix": 65.0, "pH": 3.6, "Acidity": 0.9, "Sweetness": 1.0, "Brix_Contribution": 0.65, "Acid_Contribution": 0.009, "pH_Effect": -0.009},
+        {"Ingredient_ID": 16, "Brix": 66.0, "pH": 3.5, "Acidity": 0.7, "Sweetness": 0.9, "Brix_Contribution": 0.66, "Acid_Contribution": 0.007, "pH_Effect": -0.007},
+        {"Ingredient_ID": 17, "Brix": 68.0, "pH": 3.4, "Acidity": 0.7, "Sweetness": 0.8, "Brix_Contribution": 0.68, "Acid_Contribution": 0.007, "pH_Effect": -0.007},
+        {"Ingredient_ID": 18, "Brix": 60.0, "pH": 3.3, "Acidity": 1.5, "Sweetness": 0.9, "Brix_Contribution": 0.60, "Acid_Contribution": 0.015, "pH_Effect": -0.015},
+        {"Ingredient_ID": 19, "Brix": 0.0, "pH": 4.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 20, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 21, "Brix": 0.0, "pH": 4.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 22, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 23, "Brix": 0.0, "pH": 2.4, "Acidity": 100.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 1.0, "pH_Effect": -0.26},
+        {"Ingredient_ID": 24, "Brix": 0.0, "pH": 5.0, "Acidity": 0.2, "Sweetness": 0.1, "Brix_Contribution": 0.0, "Acid_Contribution": 0.002, "pH_Effect": -0.002},
+        {"Ingredient_ID": 25, "Brix": 0.0, "pH": 6.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 26, "Brix": 0.0, "pH": 6.5, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 27, "Brix": 0.0, "pH": 6.5, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 28, "Brix": 0.0, "pH": 7.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
+        {"Ingredient_ID": 29, "Brix": 0.0, "pH": 7.0, "Acidity": 0.0, "Sweetness": 0.0, "Brix_Contribution": 0.0, "Acid_Contribution": 0.0, "pH_Effect": 0.0},
     ]
     return pd.DataFrame(rows)
 
 
-def build_sample_flavor_master() -> pd.DataFrame:
+def build_sample_flavor_map() -> pd.DataFrame:
     rows = []
-    flavor_id = 1
     for bev_type, flavors in TREND_FLAVORS.items():
-        for f in flavors:
-            rows.append({
-                "Flavor_ID": flavor_id,
-                "Flavor": f,
-                "Beverage_Type": bev_type,
-                "Trend_Score": random.randint(60, 95),
-                "Market_Region": "KR/Global",
-            })
-            flavor_id += 1
+        for flavor in flavors:
+            fl = flavor.lower()
+            base = [
+                ("정제수", "Water", 70.0, 95.0, "Base"),
+                ("설탕", "Sugar", 0.0, 12.0, "Sweetness"),
+                ("수크랄로스", "Sweetener", 0.0, 0.03, "Sweetness"),
+                ("구연산", "Acid", 0.05, 0.30, "Acidity"),
+                ("펙틴", "Stabilizer", 0.0, 0.20, "Stability"),
+            ]
+            if any(k in fl for k in ["lemon", "lime", "yuzu", "citrus"]):
+                base += [("레몬농축액", "Flavor", 0.30, 12.0, "Flavor")]
+            if any(k in fl for k in ["orange", "grapefruit"]):
+                base += [("오렌지농축액", "Flavor", 0.30, 15.0, "Flavor")]
+            if "apple" in fl:
+                base += [("사과농축액", "Flavor", 0.30, 15.0, "Flavor")]
+            if any(k in fl for k in ["mango", "tropical"]):
+                base += [("망고농축액", "Flavor", 0.30, 18.0, "Flavor")]
+            if "peach" in fl:
+                base += [("복숭아농축액", "Flavor", 0.30, 15.0, "Flavor")]
+            if any(k in fl for k in ["berry", "grape", "hibiscus", "pomegranate"]):
+                base += [("포도농축액", "Flavor", 0.30, 15.0, "Flavor"), ("히비스커스추출물", "Flavor", 0.02, 0.30, "Flavor")]
+            if "pineapple" in fl:
+                base += [("파인애플농축액", "Flavor", 0.30, 15.0, "Flavor")]
+            if "ginger" in fl:
+                base += [("생강추출물", "Flavor", 0.01, 0.20, "Flavor")]
+            if "matcha" in fl:
+                base += [("녹차추출물", "Flavor", 0.05, 0.30, "Flavor")]
+            if bev_type == "스포츠음료":
+                base += [("염화나트륨", "Electrolyte", 0.05, 0.20, "Electrolyte"), ("염화칼륨", "Electrolyte", 0.01, 0.10, "Electrolyte")]
+            if bev_type == "에너지음료":
+                base += [("타우린", "Functional", 0.20, 0.40, "Energy"), ("카페인", "Functional", 0.01, 0.04, "Energy"), ("비타민B군믹스", "Vitamin", 0.01, 0.05, "Vitamin")]
+            if bev_type == "기능성음료":
+                base += [("비타민C", "Vitamin", 0.02, 0.10, "Function")]
+            if bev_type == "식물성음료":
+                base += [("잔탄검", "Stabilizer", 0.05, 0.20, "Mouthfeel")]
+            if bev_type == "탄산음료":
+                base += [("카라멜색소", "Color", 0.0, 0.01, "Color")]
+
+            for ing_name, role, mn, mx, func in base:
+                rows.append({
+                    "Beverage_Type": bev_type,
+                    "Flavor": flavor,
+                    "Ingredient_Name": ing_name,
+                    "Ingredient_Role": role,
+                    "Typical_Range_Min": mn,
+                    "Typical_Range_Max": mx,
+                    "Function": func,
+                })
     return pd.DataFrame(rows)
 
 
-def build_sample_flavor_map(master_df: pd.DataFrame) -> pd.DataFrame:
-    flavor_rows = []
-    for _, row in master_df.iterrows():
-        flavor = row["Flavor"]
-        bev_type = row["Beverage_Type"]
-        flavor_l = flavor.lower()
-
-        default_items = [
-            ("정제수", "Water", 70.0, 95.0, "Base"),
-            ("설탕", "Sugar", 0.0, 12.0, "Sweetness"),
-            ("수크랄로스", "Sweetener", 0.0, 0.03, "Sweetness"),
-            ("구연산", "Acid", 0.05, 0.30, "Acidity"),
-            ("펙틴", "Stabilizer", 0.0, 0.20, "Stability"),
-        ]
-
-        if bev_type == "탄산음료":
-            default_items += [("카라멜색소", "Color", 0.0, 0.01, "Color")]
-        if bev_type == "스포츠음료":
-            default_items += [("염화나트륨", "Electrolyte", 0.05, 0.20, "Electrolyte"),
-                              ("염화칼륨", "Electrolyte", 0.01, 0.10, "Electrolyte")]
-        if bev_type == "에너지음료":
-            default_items += [("타우린", "Functional", 0.20, 0.40, "Energy"),
-                              ("카페인", "Functional", 0.01, 0.04, "Energy"),
-                              ("비타민B군믹스", "Vitamin", 0.01, 0.05, "Vitamin")]
-        if bev_type == "기능성음료":
-            default_items += [("비타민C", "Vitamin", 0.02, 0.10, "Function")]
-        if bev_type == "식물성음료":
-            default_items += [("잔탄검", "Stabilizer", 0.05, 0.20, "Mouthfeel")]
-
-        keyword_items = []
-        if any(k in flavor_l for k in ["lemon", "lime", "yuzu", "citrus"]):
-            keyword_items += [("레몬농축액", "Concentrate", 0.5, 12.0, "Flavor")]
-        if "orange" in flavor_l or "grapefruit" in flavor_l:
-            keyword_items += [("오렌지농축액", "Concentrate", 0.5, 15.0, "Flavor")]
-        if "apple" in flavor_l:
-            keyword_items += [("사과농축액", "Concentrate", 0.5, 15.0, "Flavor")]
-        if any(k in flavor_l for k in ["mango", "tropical"]):
-            keyword_items += [("망고농축액", "Concentrate", 0.5, 18.0, "Flavor")]
-        if "peach" in flavor_l:
-            keyword_items += [("복숭아농축액", "Concentrate", 0.5, 15.0, "Flavor")]
-        if any(k in flavor_l for k in ["berry", "grape", "hibiscus"]):
-            keyword_items += [("포도농축액", "Concentrate", 0.5, 15.0, "Flavor"),
-                              ("히비스커스추출물", "Extract", 0.02, 0.30, "Flavor")]
-        if "pineapple" in flavor_l:
-            keyword_items += [("파인애플농축액", "Concentrate", 0.5, 15.0, "Flavor")]
-        if "ginger" in flavor_l:
-            keyword_items += [("생강추출물", "Extract", 0.01, 0.20, "Flavor")]
-        if "matcha" in flavor_l:
-            keyword_items += [("녹차추출물", "Extract", 0.05, 0.30, "Flavor")]
-
-        for ing_name, role, min_v, max_v, func in default_items + keyword_items:
-            flavor_rows.append({
-                "Flavor_ID": row["Flavor_ID"],
-                "Flavor": flavor,
-                "Beverage_Type": bev_type,
-                "Ingredient_Name": ing_name,
-                "Ingredient_Role": role,
-                "Typical_Range_Min": min_v,
-                "Typical_Range_Max": max_v,
-                "Function": func,
-            })
-    return pd.DataFrame(flavor_rows)
-
-
-def build_sample_beverage_template() -> pd.DataFrame:
-    rows = []
-    for bev_type, role_dict in TYPE_TEMPLATES.items():
-        for role, (low, high) in role_dict.items():
-            rows.append({
-                "Beverage_Type": bev_type,
-                "Ingredient_Role": role,
-                "Typical_Range_Min": low,
-                "Typical_Range_Max": high,
-            })
-    return pd.DataFrame(rows)
-
-
-# =========================================================
-# 로드 / fallback
-# =========================================================
 @st.cache_data(show_spinner=False)
 def load_or_build_db() -> Dict[str, pd.DataFrame]:
-    result: Dict[str, pd.DataFrame] = {}
+    master = normalize_columns(build_sample_ingredient_master())
+    prop = normalize_columns(build_sample_ingredient_property())
+    flavor_map = normalize_columns(build_sample_flavor_map())
 
     if os.path.exists(DEFAULT_EXCEL_PATH):
         try:
             xls = pd.ExcelFile(DEFAULT_EXCEL_PATH)
             for sheet in xls.sheet_names:
                 try:
-                    result[sheet] = normalize_columns(pd.read_excel(xls, sheet_name=sheet))
+                    df = normalize_columns(pd.read_excel(xls, sheet_name=sheet))
+                    cols = set(df.columns)
+                    if {"Ingredient_ID", "Ingredient_Name", "Category"}.issubset(cols):
+                        master = df
+                    elif {"Ingredient_ID", "Brix", "pH"}.issubset(cols):
+                        prop = df
                 except Exception:
-                    continue
+                    pass
         except Exception:
-            result = {}
-
-    master = None
-    prop = None
-    flavor_master = None
-    flavor_map = None
-    beverage_template = None
-
-    for _, df in result.items():
-        cols = set(df.columns)
-        if {"Ingredient_ID", "Ingredient_Name", "Category"}.issubset(cols):
-            master = df.copy()
-        elif {"Ingredient_ID", "Brix", "pH"}.issubset(cols):
-            prop = df.copy()
-        elif {"Flavor_ID", "Flavor", "Beverage_Type"}.issubset(cols) and "Trend_Score" in cols:
-            flavor_master = df.copy()
-        elif {"Flavor_ID", "Ingredient_Name", "Ingredient_Role"}.issubset(cols):
-            flavor_map = df.copy()
-        elif {"Beverage_Type", "Ingredient_Role", "Typical_Range_Min", "Typical_Range_Max"}.issubset(cols):
-            beverage_template = df.copy()
-
-    if master is None:
-        master = normalize_columns(build_sample_ingredient_master())
-    if prop is None:
-        prop = normalize_columns(build_sample_ingredient_property())
-    if flavor_master is None:
-        flavor_master = normalize_columns(build_sample_flavor_master())
-    if flavor_map is None:
-        flavor_map = normalize_columns(build_sample_flavor_map(flavor_master))
-    if beverage_template is None:
-        beverage_template = normalize_columns(build_sample_beverage_template())
+            pass
 
     master = enforce_numeric(master, ["Ingredient_ID", "Cost"])
     prop = enforce_numeric(prop, ["Ingredient_ID", "Brix", "pH", "Acidity", "Sweetness",
-                                  "Brix_Contribution", "Acid_Contribution", "pH_Effect",
-                                  "pKa1", "pKa2", "Buffer_Capacity"])
-    flavor_master = enforce_numeric(flavor_master, ["Flavor_ID", "Trend_Score"])
-    flavor_map = enforce_numeric(flavor_map, ["Flavor_ID", "Typical_Range_Min", "Typical_Range_Max"])
-    beverage_template = enforce_numeric(beverage_template, ["Typical_Range_Min", "Typical_Range_Max"])
-
-    return {
-        "Ingredient_Master": master,
-        "Ingredient_Property": prop,
-        "Flavor_Master": flavor_master,
-        "Flavor_Ingredient_Map": flavor_map,
-        "Beverage_Type_Template": beverage_template,
-    }
+                                  "Brix_Contribution", "Acid_Contribution", "pH_Effect"])
+    return {"Ingredient_Master": master, "Ingredient_Property": prop, "Flavor_Ingredient_Map": flavor_map}
 
 
 def merge_ingredient_data(master_df: pd.DataFrame, prop_df: pd.DataFrame) -> pd.DataFrame:
     df = pd.merge(master_df, prop_df, on="Ingredient_ID", how="left")
-    df = normalize_columns(df)
-    df = enforce_numeric(df, ["Brix", "pH", "Acidity", "Sweetness", "Cost",
-                              "Brix_Contribution", "Acid_Contribution", "pH_Effect",
-                              "pKa1", "pKa2", "Buffer_Capacity"])
-    for col in ["Ingredient_Name", "Category", "Sub_Category", "Origin", "Supplier", "Solubility", "Color"]:
-        if col not in df.columns:
-            df[col] = ""
-        df[col] = df[col].fillna("").astype(str)
-    return df
-
-
-# =========================================================
-# OpenAI 기능
-# =========================================================
-def generate_ingredient_candidates_with_api(client, model_name: str, beverage_type: str, flavor_name: str) -> Optional[pd.DataFrame]:
-    prompt = f"""
-You are a beverage R&D scientist.
-Generate a realistic ingredient candidate database for this product.
-
-Beverage type: {beverage_type}
-Flavor/Product name: {flavor_name}
-
-Return strict JSON only in this format:
-{{
-  "items": [
-    {{
-      "Ingredient_Name": "...",
-      "Category": "...",
-      "Sub_Category": "...",
-      "Brix": 0.0,
-      "pH": 0.0,
-      "Acidity": 0.0,
-      "Sweetness": 0.0,
-      "Cost": 0.0,
-      "Brix_Contribution": 0.0,
-      "Acid_Contribution": 0.0,
-      "pH_Effect": 0.0,
-      "FlavorContribution": 0.0,
-      "Purpose": "..."
-    }}
-  ]
-}}
-
-Need around 18 to 30 relevant ingredients only.
-No explanation.
-""".strip()
-
-    try:
-        resp = client.chat.completions.create(
-            model=model_name,
-            response_format={"type": "json_object"},
-            messages=[
-                {"role": "system", "content": "You output strict JSON only."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.6,
-        )
-        content = resp.choices[0].message.content or ""
-        parsed = robust_json_extract(content)
-        if parsed and isinstance(parsed, dict) and "items" in parsed:
-            df = pd.DataFrame(parsed["items"])
-            if not df.empty:
-                return normalize_columns(df)
-    except Exception:
-        return None
-    return None
-
-
-def generate_image_with_openai(client, prompt: str, model_name: str = "gpt-image-1") -> Optional[bytes]:
-    try:
-        response = client.images.generate(
-            model=model_name,
-            prompt=prompt,
-            size="1024x1024",
-            quality="high",
-        )
-        if hasattr(response, "data") and response.data:
-            item = response.data[0]
-            if getattr(item, "b64_json", None):
-                return base64.b64decode(item.b64_json)
-        return None
-    except Exception:
-        return None
-
-
-def ai_multi_report_with_api(client, model_name: str, beverage_type: str, flavor_name: str, formula_table: pd.DataFrame, summary: FormulaSummary) -> Optional[str]:
-    preview = formula_table.to_dict(orient="records")
-    prompt = f"""
-You are a panel consisting of:
-1. Beverage R&D Scientist
-2. Food Marketing Strategist
-
-Discuss this beverage concept and formulation, then write the final report in Korean.
-
-Beverage type: {beverage_type}
-Flavor/Product name: {flavor_name}
-
-Summary:
-- Brix: {summary.total_brix}
-- pH: {summary.total_ph}
-- Acid: {summary.total_acid}
-- Sweetness: {summary.total_sweetness}
-- Cost: {summary.total_cost}
-- Score: {summary.score}
-
-Formula:
-{json.dumps(preview, ensure_ascii=False)}
-
-Write:
-1. 기술 평가 보고서
-2. 마케팅 평가 보고서
-3. 토의 결과 요약
-4. 개선의견 보고서
-5. 최종 권고안
-""".strip()
-
-    try:
-        resp = client.chat.completions.create(
-            model=model_name,
-            messages=[
-                {"role": "system", "content": "You are a senior beverage R&D scientist and food marketing strategist. Respond only in Korean."},
-                {"role": "user", "content": prompt},
-            ],
-            temperature=0.5,
-        )
-        content = resp.choices[0].message.content or ""
-        return content.strip() if content else None
-    except Exception:
-        return None
-
-
-# =========================================================
-# 추천 / 이유 / 이미지 프롬프트
-# =========================================================
-def build_random_recommendations(beverage_type: str, n: int = 10) -> List[str]:
-    pool = TREND_FLAVORS.get(beverage_type, [])
-    if not pool:
-        return []
-    n = min(n, len(pool))
-    return random.sample(pool, n)
-
-
-def recommendation_reason(beverage_type: str, flavor_name: str) -> str:
-    name_l = flavor_name.lower()
-    reason_parts = []
-
-    base_reason = {
-        "탄산음료": "청량감과 첫 향 인지가 중요한 유형이라 즉시성 있는 flavor가 유리함",
-        "과채음료": "과즙감과 자연 이미지 스토리텔링이 쉬운 flavor 조합",
-        "스포츠음료": "가볍고 산뜻한 향이 전해질 음료와 잘 맞음",
-        "에너지음료": "강한 첫인상과 기능성 이미지 연출에 유리한 flavor",
-        "식물성음료": "식물성 베이스의 바디감과 어울리는 부드러운 flavor 방향",
-        "기능성음료": "기능성 원료의 이취 완화와 건강 이미지 강화에 적합한 flavor",
-    }
-    reason_parts.append(base_reason.get(beverage_type, "해당 유형과의 적합성이 높음"))
-
-    if any(k in name_l for k in ["lemon", "lime", "yuzu", "citrus", "orange", "grapefruit"]):
-        reason_parts.append("시트러스 계열이라 산미 설계와 향 발현이 직관적임")
-    if any(k in name_l for k in ["mango", "pineapple", "guava", "passionfruit", "tropical"]):
-        reason_parts.append("트로피컬 계열이라 시각적 임팩트와 트렌드성이 큼")
-    if any(k in name_l for k in ["berry", "grape", "hibiscus", "pomegranate", "lychee"]):
-        reason_parts.append("컬러 연출과 프리미엄 포지셔닝에 유리함")
-    if any(k in name_l for k in ["ginger", "mint", "cucumber"]):
-        reason_parts.append("차별화 포인트가 분명해 신제품 콘셉트화가 쉬움")
-    if any(k in name_l for k in ["vanilla", "chocolate", "banana", "matcha", "coffee"]):
-        reason_parts.append("부드러운 바디감 또는 디저트형 콘셉트와 연결이 쉬움")
-
-    return " / ".join(reason_parts[:3])
-
-
-def build_image_prompt(product_name: str, beverage_type: str, formula_df: pd.DataFrame) -> str:
-    if formula_df is None or formula_df.empty:
-        return f"""
-Create a premium beverage product rendering.
-Product name: {product_name}
-Beverage type: {beverage_type}
-Show one hero packshot on a clean studio background.
-Modern Korean food lab concept, photorealistic, high detail.
-""".strip()
-
-    top_ings = (
-        formula_df[formula_df["Ingredient_Role"] != "Water"]
-        .sort_values("Usage_%", ascending=False)
-        .head(6)["Ingredient_Name"]
-        .astype(str)
-        .tolist()
-    )
-    ing_text = ", ".join(top_ings)
-
-    return f"""
-Create a premium commercial beverage product image.
-Product name: {product_name}
-Beverage type: {beverage_type}
-Key ingredients and formulation cues: {ing_text}
-
-Requirements:
-- photorealistic beverage package hero shot
-- premium Korean retail market look
-- clean futuristic food research lab mood
-- robotic food automation visual concept
-- ingredient cues reflected in color, garnish, and liquid tone
-- elegant, high detail, realistic lighting
-- no extra random text
-""".strip()
-
-
-# =========================================================
-# 원재료 / 배합 논리
-# =========================================================
-def filter_ingredient_by_flavor(
-    ingredient_df: pd.DataFrame,
-    flavor_map_df: pd.DataFrame,
-    flavor_name: str,
-    beverage_type: str,
-) -> pd.DataFrame:
-    ingredient_df = ingredient_df.copy()
-    flavor_map_df = flavor_map_df.copy()
-
-    for col in ["Flavor", "Beverage_Type", "Ingredient_Name", "Ingredient_Role"]:
-        if col not in flavor_map_df.columns:
-            flavor_map_df[col] = ""
-
-    matched = flavor_map_df[
-        (flavor_map_df["Flavor"].astype(str).str.lower() == flavor_name.lower()) &
-        (flavor_map_df["Beverage_Type"].astype(str) == beverage_type)
-    ].copy()
-
-    df = ingredient_df.merge(
-        matched[["Ingredient_Name", "Ingredient_Role", "Typical_Range_Min", "Typical_Range_Max", "Function"]],
-        on="Ingredient_Name",
-        how="inner",
-    )
-
-    if df.empty:
-        essential_roles = TYPE_TEMPLATES.get(beverage_type, {})
-        temp_rows = []
-        for role in essential_roles.keys():
-            cand = ingredient_df[ingredient_df["Category"].isin(role_to_categories(role))].copy()
-            if not cand.empty:
-                row = cand.iloc[0].to_dict()
-                row["Ingredient_Role"] = role
-                low, high = essential_roles[role]
-                row["Typical_Range_Min"] = low
-                row["Typical_Range_Max"] = high
-                row["Function"] = role
-                temp_rows.append(row)
-        df = pd.DataFrame(temp_rows)
-
-    if "FlavorContribution" not in df.columns:
-        df["FlavorContribution"] = 0.0
-    if "Purpose" not in df.columns:
-        df["Purpose"] = df.get("Function", "")
-
-    return df.reset_index(drop=True)
+    return ensure_formula_schema(df, "탄산음료")
 
 
 def build_ai_ingredient_view(
@@ -889,26 +563,20 @@ def build_ai_ingredient_view(
     client,
     model_name: str,
 ) -> pd.DataFrame:
-    """
-    제품명 + flavor 기반 원재료 DB 상태 생성.
-    API 실패 시 내부 flavor-map + 카테고리 규칙으로 fallback.
-    """
-    api_df = None
-    if client is not None:
-        api_df = generate_ingredient_candidates_with_api(client, model_name, beverage_type, flavor_name)
+    matched = flavor_map_df[
+        (flavor_map_df["Beverage_Type"] == beverage_type) &
+        (flavor_map_df["Flavor"].astype(str).str.lower() == flavor_name.lower())
+    ].copy()
 
-    if api_df is not None and not api_df.empty:
-        for col in ["Category", "Sub_Category", "Ingredient_Name", "Purpose"]:
-            if col not in api_df.columns:
-                api_df[col] = ""
-        api_df = enforce_numeric(api_df, ["Brix", "pH", "Acidity", "Sweetness", "Cost",
-                                          "Brix_Contribution", "Acid_Contribution", "pH_Effect", "FlavorContribution"])
-        api_df["Source"] = "AI Generated"
-        return api_df
+    rule_df = ingredient_df.merge(
+        matched[["Ingredient_Name", "Ingredient_Role", "Typical_Range_Min", "Typical_Range_Max", "Function"]],
+        on="Ingredient_Name",
+        how="inner",
+    )
 
-    fallback_df = filter_ingredient_by_flavor(ingredient_df, flavor_map_df, flavor_name, beverage_type).copy()
-    fallback_df["Source"] = "Rule-Based Fallback"
-    return fallback_df
+    rule_df = ensure_formula_schema(rule_df, beverage_type)
+    rule_df["Source"] = "Rule-Based"
+    return rule_df
 
 
 def build_standard_formula_from_intensity(
@@ -918,6 +586,8 @@ def build_standard_formula_from_intensity(
     acid_intensity: int,
     sweet_intensity: int,
 ) -> pd.DataFrame:
+    filtered_df = ensure_formula_schema(filtered_df, beverage_type)
+
     template = TYPE_TEMPLATES.get(beverage_type, {})
     rows = []
 
@@ -925,52 +595,36 @@ def build_standard_formula_from_intensity(
     for role, (low, high) in template.items():
         if role in ["Sugar", "Sweetener"]:
             role_target_map[role] = map_intensity_to_value(sweet_intensity, low, high)
-        elif role in ["Acid"]:
+        elif role == "Acid":
             role_target_map[role] = map_intensity_to_value(acid_intensity, low, high)
         elif role in ["Flavor", "Concentrate", "Extract"]:
             role_target_map[role] = round((low + high) / 2.0, 4)
-        elif role in ["Functional", "Vitamin", "Electrolyte", "Stabilizer", "Color"]:
-            role_target_map[role] = round((low + high) / 2.0, 4)
-        elif role == "Water":
-            role_target_map[role] = 0.0
         else:
             role_target_map[role] = round((low + high) / 2.0, 4)
 
     for role in template.keys():
         candidates = filtered_df[filtered_df["Ingredient_Role"] == role].copy()
+
         if candidates.empty:
             candidates = filtered_df[filtered_df["Category"].isin(role_to_categories(role))].copy()
+
         if candidates.empty and role != "Water":
             continue
 
         if role == "Water":
             rows.append({
-                "Ingredient_ID": -999,
                 "Ingredient_Name": "정제수",
                 "Category": "Water",
-                "Sub_Category": "Base",
-                "Origin": "국내",
-                "Supplier": "Auto",
-                "Cost": 5.0,
-                "Solubility": "High",
-                "Color": "Clear",
+                "Ingredient_Role": "Water",
                 "Brix": 0.0,
                 "pH": 7.0,
                 "Acidity": 0.0,
                 "Sweetness": 0.0,
+                "Cost": 5.0,
                 "Brix_Contribution": 0.0,
                 "Acid_Contribution": 0.0,
                 "pH_Effect": 0.0,
-                "pKa1": 0.0,
-                "pKa2": 0.0,
-                "Buffer_Capacity": 0.0,
-                "pH_Model_Type": "neutral",
-                "FlavorContribution": 0.0,
                 "Purpose": "Base",
-                "Ingredient_Role": "Water",
-                "Typical_Range_Min": template["Water"][0],
-                "Typical_Range_Max": template["Water"][1],
-                "Function": "Base",
                 "Usage_%": 0.0,
             })
             continue
@@ -980,22 +634,19 @@ def build_standard_formula_from_intensity(
         rows.append(chosen)
 
     formula_df = pd.DataFrame(rows)
-    formula_df = rebalance_water(formula_df, beverage_type)
+    formula_df = rebalance_water(formula_df)
 
-    # pH 강도는 실제 pH 자체가 아니라 산성도 체감에 가까우므로 Acid/Concentrate 비중 보정을 추가
     if not formula_df.empty and ph_intensity != 3:
         ph_multiplier = {1: 0.80, 2: 0.92, 3: 1.00, 4: 1.10, 5: 1.18}[ph_intensity]
-        acid_like_roles = formula_df["Ingredient_Role"].isin(["Acid", "Concentrate", "Extract"])
-        formula_df.loc[acid_like_roles, "Usage_%"] = formula_df.loc[acid_like_roles, "Usage_%"] * ph_multiplier
-        formula_df = rebalance_water(formula_df, beverage_type)
+        acid_like = formula_df["Ingredient_Role"].isin(["Acid", "Flavor", "Concentrate", "Extract"])
+        formula_df.loc[acid_like, "Usage_%"] = formula_df.loc[acid_like, "Usage_%"] * ph_multiplier
+        formula_df = rebalance_water(formula_df)
 
-    return formula_df
+    return ensure_formula_schema(formula_df, beverage_type)
 
 
-def rebalance_water(formula_df: pd.DataFrame, beverage_type: str) -> pd.DataFrame:
+def rebalance_water(formula_df: pd.DataFrame) -> pd.DataFrame:
     df = formula_df.copy()
-    if "Usage_%" not in df.columns:
-        df["Usage_%"] = 0.0
     df["Usage_%"] = pd.to_numeric(df["Usage_%"], errors="coerce").fillna(0.0)
 
     non_water_sum = df.loc[df["Ingredient_Role"] != "Water", "Usage_%"].sum()
@@ -1005,48 +656,28 @@ def rebalance_water(formula_df: pd.DataFrame, beverage_type: str) -> pd.DataFram
     if water_idx:
         df.loc[water_idx[0], "Usage_%"] = water_value
     else:
-        water_row = {
-            "Ingredient_ID": -999,
+        df = pd.concat([pd.DataFrame([{
             "Ingredient_Name": "정제수",
             "Category": "Water",
-            "Sub_Category": "Base",
-            "Origin": "국내",
-            "Supplier": "Auto",
-            "Cost": 5.0,
-            "Solubility": "High",
-            "Color": "Clear",
+            "Ingredient_Role": "Water",
             "Brix": 0.0,
             "pH": 7.0,
             "Acidity": 0.0,
             "Sweetness": 0.0,
+            "Cost": 5.0,
             "Brix_Contribution": 0.0,
             "Acid_Contribution": 0.0,
             "pH_Effect": 0.0,
-            "pKa1": 0.0,
-            "pKa2": 0.0,
-            "Buffer_Capacity": 0.0,
-            "pH_Model_Type": "neutral",
-            "FlavorContribution": 0.0,
             "Purpose": "Base",
-            "Ingredient_Role": "Water",
             "Usage_%": water_value,
-        }
-        df = pd.concat([pd.DataFrame([water_row]), df], ignore_index=True)
-
+        }]), df], ignore_index=True)
     return df
 
 
 def calculate_properties(formula_df: pd.DataFrame, beverage_type: str) -> FormulaSummary:
-    if formula_df is None or formula_df.empty:
+    df = ensure_formula_schema(formula_df, beverage_type)
+    if df.empty:
         return FormulaSummary(0.0, 0.0, 0.0, 0.0, 7.0, 999999.0)
-
-    df = formula_df.copy()
-    numeric_cols = [
-        "Usage_%", "Brix", "Acidity", "Sweetness", "Cost",
-        "Brix_Contribution", "Acid_Contribution", "pH_Effect",
-        "pKa1", "pKa2", "Buffer_Capacity"
-    ]
-    df = enforce_numeric(df, numeric_cols)
 
     df["Brix_Contribution_Value"] = df["Usage_%"] * df["Brix"] / 100.0
     df["Acid_Contribution_Value"] = df["Usage_%"] * df["Acidity"] / 100.0
@@ -1058,43 +689,17 @@ def calculate_properties(formula_df: pd.DataFrame, beverage_type: str) -> Formul
     total_sweetness = round(df["Sweetness_Contribution_Value"].sum(), 4)
     total_cost = round(df["Cost_Contribution"].sum(), 4)
 
-    acid_rows = df[df["Ingredient_Role"].isin(["Acid", "Concentrate", "Extract"])].copy()
-    buffer_beta = safe_float((acid_rows["Buffer_Capacity"] * acid_rows["Usage_%"]).sum(), 0.0)
-    weighted_base_ph = 7.0
+    base_ph = 6.8 if beverage_type == "식물성음료" else 4.2
+    total_ph = round(clamp(base_ph + (df["pH_Effect"] * df["Usage_%"]).sum(), 1.5, 8.0), 4)
 
-    if beverage_type in ["탄산음료", "과채음료", "에너지음료", "기능성음료", "스포츠음료"]:
-        weighted_base_ph = 4.2
-    elif beverage_type == "식물성음료":
-        weighted_base_ph = 6.8
-
-    has_buffer_model = (
-        not acid_rows.empty and
-        (acid_rows["pH_Model_Type"].astype(str).str.lower() == "buffered").any() and
-        buffer_beta > 0
-    )
-
-    if has_buffer_model:
-        total_ph = weighted_base_ph - (total_acid / max(buffer_beta, 0.05))
-    else:
-        linear_effect = safe_float((df["pH_Effect"] * df["Usage_%"]).sum(), 0.0)
-        total_ph = weighted_base_ph + linear_effect
-
-    total_ph = round(clamp(total_ph, 1.5, 8.0), 4)
-
-    return FormulaSummary(
-        total_brix=total_brix,
-        total_acid=total_acid,
-        total_sweetness=total_sweetness,
-        total_cost=total_cost,
-        total_ph=total_ph,
-        score=0.0,
-    )
+    return FormulaSummary(total_brix, total_acid, total_sweetness, total_cost, total_ph, 0.0)
 
 
 def create_individual(filtered_df: pd.DataFrame, beverage_type: str) -> pd.DataFrame:
+    filtered_df = ensure_formula_schema(filtered_df, beverage_type)
+
     template = TYPE_TEMPLATES.get(beverage_type, {})
     rows = []
-
     for role, (low, high) in template.items():
         candidates = filtered_df[filtered_df["Ingredient_Role"] == role].copy()
         if candidates.empty:
@@ -1105,29 +710,18 @@ def create_individual(filtered_df: pd.DataFrame, beverage_type: str) -> pd.DataF
 
         if role == "Water":
             rows.append({
-                "Ingredient_ID": -999,
                 "Ingredient_Name": "정제수",
                 "Category": "Water",
-                "Sub_Category": "Base",
-                "Origin": "국내",
-                "Supplier": "Auto",
-                "Cost": 5.0,
-                "Solubility": "High",
-                "Color": "Clear",
+                "Ingredient_Role": "Water",
                 "Brix": 0.0,
                 "pH": 7.0,
                 "Acidity": 0.0,
                 "Sweetness": 0.0,
+                "Cost": 5.0,
                 "Brix_Contribution": 0.0,
                 "Acid_Contribution": 0.0,
                 "pH_Effect": 0.0,
-                "pKa1": 0.0,
-                "pKa2": 0.0,
-                "Buffer_Capacity": 0.0,
-                "pH_Model_Type": "neutral",
-                "FlavorContribution": 0.0,
                 "Purpose": "Base",
-                "Ingredient_Role": "Water",
                 "Usage_%": 0.0,
             })
             continue
@@ -1136,7 +730,7 @@ def create_individual(filtered_df: pd.DataFrame, beverage_type: str) -> pd.DataF
         chosen["Usage_%"] = round(random.uniform(low, high), 4)
         rows.append(chosen)
 
-    return rebalance_water(pd.DataFrame(rows), beverage_type)
+    return ensure_formula_schema(rebalance_water(pd.DataFrame(rows)), beverage_type)
 
 
 def evaluate(
@@ -1147,7 +741,6 @@ def evaluate(
     target_acidity: float,
 ) -> Tuple[float, FormulaSummary]:
     summary = calculate_properties(formula_df, beverage_type)
-
     score = (
         abs(target_brix - summary.total_brix) * 40.0
         + abs(target_acidity - summary.total_acid) * 60.0
@@ -1159,10 +752,8 @@ def evaluate(
 
 
 def crossover(parent1: pd.DataFrame, parent2: pd.DataFrame, beverage_type: str) -> pd.DataFrame:
-    if parent1.empty:
-        return parent2.copy()
-    if parent2.empty:
-        return parent1.copy()
+    parent1 = ensure_formula_schema(parent1, beverage_type)
+    parent2 = ensure_formula_schema(parent2, beverage_type)
 
     roles = sorted(set(parent1["Ingredient_Role"].tolist()) | set(parent2["Ingredient_Role"].tolist()))
     rows = []
@@ -1172,14 +763,12 @@ def crossover(parent1: pd.DataFrame, parent2: pd.DataFrame, beverage_type: str) 
         if not candidates.empty:
             rows.append(candidates.iloc[0].to_dict())
 
-    return rebalance_water(pd.DataFrame(rows), beverage_type)
+    return ensure_formula_schema(rebalance_water(pd.DataFrame(rows)), beverage_type)
 
 
 def mutate(formula_df: pd.DataFrame, beverage_type: str, mutation_rate: float = 0.20) -> pd.DataFrame:
-    df = formula_df.copy()
+    df = ensure_formula_schema(formula_df, beverage_type)
     template = TYPE_TEMPLATES.get(beverage_type, {})
-    if df.empty:
-        return df
 
     for idx, row in df.iterrows():
         role = row.get("Ingredient_Role", "")
@@ -1189,7 +778,7 @@ def mutate(formula_df: pd.DataFrame, beverage_type: str, mutation_rate: float = 
             low, high = template[role]
             df.at[idx, "Usage_%"] = round(random.uniform(low, high), 4)
 
-    return rebalance_water(df, beverage_type)
+    return ensure_formula_schema(rebalance_water(df), beverage_type)
 
 
 def optimize_formula(
@@ -1201,15 +790,17 @@ def optimize_formula(
     population_size: int,
     generations: int,
 ) -> List[Tuple[pd.DataFrame, FormulaSummary]]:
+    filtered_df = ensure_formula_schema(filtered_df, beverage_type)
     population = []
-    for _ in range(max(10, population_size)):
+
+    for _ in range(max(20, population_size)):
         indiv = create_individual(filtered_df, beverage_type)
         _, summary = evaluate(indiv, beverage_type, target_brix, target_sweetness, target_acidity)
         population.append((indiv, summary))
 
     for _ in range(max(1, generations)):
         population = sorted(population, key=lambda x: x[1].score)
-        survivors = population[: max(2, int(len(population) * 0.3))]
+        survivors = population[: max(4, int(len(population) * 0.3))]
 
         new_population = survivors.copy()
         while len(new_population) < population_size:
@@ -1223,491 +814,3 @@ def optimize_formula(
         population = new_population
 
     return sorted(population, key=lambda x: x[1].score)[:20]
-
-
-# =========================================================
-# 검증 / 보고서 / 출력
-# =========================================================
-def validate_formula(summary: FormulaSummary, beverage_type: str) -> Tuple[str, Dict[str, str]]:
-    rule = VALIDATION_RANGES.get(beverage_type)
-    if not rule:
-        return "UNKNOWN", {}
-
-    details = {}
-    passed = True
-
-    for metric, (low, high) in rule.items():
-        if metric == "Brix":
-            val = summary.total_brix
-        elif metric == "pH":
-            val = summary.total_ph
-        elif metric == "Acid":
-            val = summary.total_acid
-        else:
-            continue
-
-        ok = low <= val <= high
-        details[metric] = f"{val:.4f} / 기준 {low}~{high} / {'PASS' if ok else 'FAIL'}"
-        if not ok:
-            passed = False
-
-    return ("PASS" if passed else "FAIL"), details
-
-
-def render_formula_table(formula_df: pd.DataFrame, beverage_type: str) -> pd.DataFrame:
-    if formula_df is None or formula_df.empty:
-        return pd.DataFrame()
-
-    df = formula_df.copy()
-    summary = calculate_properties(df, beverage_type)
-
-    df["Brix_Contribution_Value"] = df["Usage_%"] * df["Brix"] / 100.0
-    df["Acid_Contribution_Value"] = df["Usage_%"] * df["Acidity"] / 100.0
-    df["Sweetness_Contribution_Value"] = df["Usage_%"] * df["Sweetness"] / 100.0
-    df["Cost_Contribution"] = df["Usage_%"] * df["Cost"] / 100.0
-
-    display_cols = [
-        "Ingredient_Name", "Category", "Ingredient_Role", "Usage_%", "Cost",
-        "Cost_Contribution", "Brix", "Brix_Contribution_Value", "pH",
-        "Acidity", "Acid_Contribution_Value", "Sweetness", "Sweetness_Contribution_Value",
-        "FlavorContribution", "Purpose"
-    ]
-    for col in display_cols:
-        if col not in df.columns:
-            df[col] = ""
-
-    out = df[display_cols].copy()
-
-    total_row = pd.DataFrame([{
-        "Ingredient_Name": "TOTAL",
-        "Category": "-",
-        "Ingredient_Role": "-",
-        "Usage_%": round(pd.to_numeric(out["Usage_%"], errors="coerce").fillna(0.0).sum(), 4),
-        "Cost": "",
-        "Cost_Contribution": round(summary.total_cost, 4),
-        "Brix": "",
-        "Brix_Contribution_Value": round(summary.total_brix, 4),
-        "pH": round(summary.total_ph, 4),
-        "Acidity": "",
-        "Acid_Contribution_Value": round(summary.total_acid, 4),
-        "Sweetness": "",
-        "Sweetness_Contribution_Value": round(summary.total_sweetness, 4),
-        "FlavorContribution": "",
-        "Purpose": f"Score={summary.score:.4f}",
-    }])
-
-    return pd.concat([out, total_row], ignore_index=True)
-
-
-def fallback_multi_report(beverage_type: str, flavor_name: str, summary: FormulaSummary, validation_status: str) -> str:
-    if summary.total_brix < 5:
-        sweet_comment = "감미가 약한 편으로, 대중성 확보를 위해 당류 또는 고감미료 보정이 필요하다."
-    elif summary.total_brix > 13:
-        sweet_comment = "당도 체감이 높은 편으로, 후미와 음용 피로도를 확인해야 한다."
-    else:
-        sweet_comment = "감미 밸런스는 대체로 안정적이다."
-
-    if summary.total_acid < 0.08:
-        acid_comment = "산미가 다소 약해 향의 입체감이 부족할 수 있다."
-    elif summary.total_acid > 0.30:
-        acid_comment = "산미가 강한 편이라 자극감이 커질 수 있다."
-    else:
-        acid_comment = "산미 수준은 전반적으로 적정 범위에 가깝다."
-
-    tech = f"""
-1. 기술 평가 보고서
-- 제품 유형: {beverage_type}
-- 제품명/Flavor: {flavor_name}
-- Brix는 {summary.total_brix:.4f}, pH는 {summary.total_ph:.4f}, Acid는 {summary.total_acid:.4f} 수준이다.
-- {sweet_comment}
-- {acid_comment}
-"""
-
-    marketing = f"""
-2. 마케팅 평가 보고서
-- {flavor_name}는 {beverage_type} 카테고리에서 트렌드 확장성이 있다.
-- 비주얼/향미 스토리텔링이 비교적 쉬우며, 소비자 인지 포인트가 분명하다.
-- 기능성 또는 프리미엄 포지셔닝도 가능하다.
-"""
-
-    discussion = f"""
-3. 토의 결과 요약
-- 연구원 관점: 표준배합 기준과 원가 균형이 중요하다.
-- 마케팅 관점: 첫 향 인지, 제품명 전달력, 시각적 연상성이 중요하다.
-- 종합 판정: 현재 배합은 {validation_status} 수준이며, 소폭 조정 시 상품화 가능성이 높다.
-"""
-
-    improve = """
-4. 개선의견 보고서
-- 산미와 감미 밸런스를 미세 조정하여 음용성을 높일 것
-- 핵심 flavor 농축액 또는 추출물의 상위 사용량 1~2개를 재조정할 것
-- 원가가 높은 기능성 소재는 효능 포인트를 살리면서 최소 유효 사용량으로 최적화할 것
-"""
-
-    recommend = """
-5. 최종 권고안
-- 현재 배합은 시제품 수준으로 타당하다.
-- 관능평가 1차 후 Brix / Acid / 주요 flavor 원료 비율을 재세팅하는 것을 권장한다.
-"""
-
-    return "\n".join([tech, marketing, discussion, improve, recommend])
-
-
-def to_excel_bytes(formula_table: pd.DataFrame, ingredient_db_view: pd.DataFrame, summary: FormulaSummary, validation_status: str, validation_details: Dict[str, str]) -> bytes:
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine="openpyxl") as writer:
-        formula_table.to_excel(writer, sheet_name="Formula", index=False)
-        ingredient_db_view.to_excel(writer, sheet_name="Ingredient_DB", index=False)
-
-        pd.DataFrame([{
-            "Brix": summary.total_brix,
-            "pH": summary.total_ph,
-            "Acid": summary.total_acid,
-            "Sweetness": summary.total_sweetness,
-            "Cost": summary.total_cost,
-            "Score": summary.score,
-            "Validation": validation_status,
-        }]).to_excel(writer, sheet_name="Summary", index=False)
-
-        if validation_details:
-            pd.DataFrame(
-                [{"Metric": k, "Detail": v} for k, v in validation_details.items()]
-            ).to_excel(writer, sheet_name="Validation", index=False)
-
-    output.seek(0)
-    return output.read()
-
-
-# =========================================================
-# 데이터 준비
-# =========================================================
-db = load_or_build_db()
-master_df = db["Ingredient_Master"]
-prop_df = db["Ingredient_Property"]
-flavor_master_df = db["Flavor_Master"]
-flavor_map_df = db["Flavor_Ingredient_Map"]
-template_df = db["Beverage_Type_Template"]
-ingredient_df = merge_ingredient_data(master_df, prop_df)
-
-# =========================================================
-# 세션 상태
-# =========================================================
-if "last_beverage_type" not in st.session_state:
-    st.session_state.last_beverage_type = UI_BEVERAGE_TYPES[0]
-
-if "recommended_flavors" not in st.session_state:
-    st.session_state.recommended_flavors = build_random_recommendations(UI_BEVERAGE_TYPES[0], 10)
-
-if "selected_flavor" not in st.session_state:
-    st.session_state.selected_flavor = st.session_state.recommended_flavors[0] if st.session_state.recommended_flavors else ""
-
-if "ph_intensity" not in st.session_state:
-    st.session_state.ph_intensity = 3
-if "acid_intensity" not in st.session_state:
-    st.session_state.acid_intensity = 3
-if "sweet_intensity" not in st.session_state:
-    st.session_state.sweet_intensity = 3
-
-if "target_brix" not in st.session_state:
-    st.session_state.target_brix = 11.0
-if "target_sweetness" not in st.session_state:
-    st.session_state.target_sweetness = 7.0
-if "target_acidity" not in st.session_state:
-    st.session_state.target_acidity = 0.22
-
-# =========================================================
-# Sidebar
-# =========================================================
-with st.sidebar:
-    st.markdown("### ⚙️ 로봇 제어 패널")
-    api_key = st.text_input("OpenAI API Key", type="password", placeholder="sk-...")
-    model_name = st.text_input("Text Model", value="gpt-5.4")
-    image_model_name = st.text_input("Image Model", value="gpt-image-1")
-
-    st.markdown("---")
-    beverage_type = st.selectbox("🥤 음료 유형 선택", UI_BEVERAGE_TYPES)
-
-    if beverage_type != st.session_state.last_beverage_type:
-        st.session_state.last_beverage_type = beverage_type
-        st.session_state.recommended_flavors = build_random_recommendations(beverage_type, 10)
-        st.session_state.selected_flavor = st.session_state.recommended_flavors[0] if st.session_state.recommended_flavors else ""
-        st.session_state.ph_intensity = 3
-        st.session_state.acid_intensity = 3
-        st.session_state.sweet_intensity = 3
-
-    selected_flavor = st.selectbox(
-        "🧪 제품명 / Flavor 선택",
-        st.session_state.recommended_flavors if st.session_state.recommended_flavors else [""],
-        key="selected_flavor",
-    )
-
-    st.markdown("#### 표준 강도 조절")
-    ph_intensity = st.select_slider(
-        "표준 pH 강도",
-        options=[1, 2, 3, 4, 5],
-        format_func=lambda x: INTENSITY_LABELS[x],
-        key="ph_intensity",
-    )
-    acid_intensity = st.select_slider(
-        "표준 Acid 강도",
-        options=[1, 2, 3, 4, 5],
-        format_func=lambda x: INTENSITY_LABELS[x],
-        key="acid_intensity",
-    )
-    sweet_intensity = st.select_slider(
-        "표준 Sweetness 강도",
-        options=[1, 2, 3, 4, 5],
-        format_func=lambda x: INTENSITY_LABELS[x],
-        key="sweet_intensity",
-    )
-
-    st.markdown("#### 목표 물성")
-    population_size = st.slider("Population Size", 50, 1000, 200, 10)
-    generations = st.slider("Generations", 5, 100, 20, 1)
-
-    run_generate = st.button("🤖 자동 배합 생성", use_container_width=True)
-    run_image = st.button("🖼️ 이미지 출력", use_container_width=True)
-
-client, client_error = get_openai_client(api_key)
-
-# =========================================================
-# 추천 10개
-# =========================================================
-st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">🎯 음료유형별 랜덤 트렌드 추천 10선</div>', unsafe_allow_html=True)
-rec_rows = []
-for flavor in st.session_state.recommended_flavors:
-    rec_rows.append({
-        "추천 제품명": flavor,
-        "추천 이유": recommendation_reason(beverage_type, flavor),
-    })
-st.dataframe(pd.DataFrame(rec_rows), use_container_width=True)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================================================
-# 원재료 DB 상태
-# =========================================================
-ingredient_db_view = build_ai_ingredient_view(
-    ingredient_df=ingredient_df,
-    flavor_map_df=flavor_map_df,
-    beverage_type=beverage_type,
-    flavor_name=selected_flavor,
-    client=client,
-    model_name=model_name,
-)
-
-st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">🧬 원재료 DB 상태 (제품명 + Flavor 기반 생성)</div>', unsafe_allow_html=True)
-st.dataframe(
-    ingredient_db_view[[
-        c for c in [
-            "Ingredient_Name", "Category", "Sub_Category", "Brix", "pH", "Acidity",
-            "Sweetness", "Cost", "Brix_Contribution", "Acid_Contribution",
-            "pH_Effect", "FlavorContribution", "Purpose", "Source"
-        ] if c in ingredient_db_view.columns
-    ]],
-    use_container_width=True,
-)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================================================
-# 표준배합 템플릿
-# =========================================================
-std_formula = build_standard_formula_from_intensity(
-    filtered_df=ingredient_db_view,
-    beverage_type=beverage_type,
-    ph_intensity=ph_intensity,
-    acid_intensity=acid_intensity,
-    sweet_intensity=sweet_intensity,
-)
-std_summary = calculate_properties(std_formula, beverage_type) if not std_formula.empty else FormulaSummary(0, 0, 0, 0, 7, 999999)
-
-st.session_state.target_brix = round(std_summary.total_brix, 2)
-st.session_state.target_sweetness = round(clamp(std_summary.total_sweetness, 0.5, 10.0), 2)
-st.session_state.target_acidity = round(clamp(std_summary.total_acid, 0.01, 0.50), 2)
-
-st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">📐 표준배합비 참고 템플릿</div>', unsafe_allow_html=True)
-c1, c2, c3, c4, c5 = st.columns(5)
-c1.metric("표준 Brix", f"{std_summary.total_brix:.4f}")
-c2.metric("표준 pH", f"{std_summary.total_ph:.4f}")
-c3.metric("표준 Acid", f"{std_summary.total_acid:.4f}")
-c4.metric("표준 Sweetness", f"{std_summary.total_sweetness:.4f}")
-c5.metric("표준 Cost", f"{std_summary.total_cost:.4f}")
-
-st.caption(
-    f"pH 강도: {INTENSITY_LABELS[ph_intensity]} / "
-    f"Acid 강도: {INTENSITY_LABELS[acid_intensity]} / "
-    f"Sweetness 강도: {INTENSITY_LABELS[sweet_intensity]}"
-)
-std_display = render_formula_table(std_formula, beverage_type)
-st.dataframe(std_display, use_container_width=True)
-st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================================================
-# 자동 배합 생성
-# =========================================================
-best_formula = None
-best_summary = None
-formula_table = None
-validation_status = None
-validation_details = None
-multi_report_text = None
-
-if run_generate:
-    with st.spinner("로봇이 제품 배합비를 생성 중이다..."):
-        top_results = optimize_formula(
-            filtered_df=ingredient_db_view,
-            beverage_type=beverage_type,
-            target_brix=st.session_state.target_brix,
-            target_sweetness=st.session_state.target_sweetness,
-            target_acidity=st.session_state.target_acidity,
-            population_size=population_size,
-            generations=generations,
-        )
-
-    if top_results:
-        summary_rows = []
-        for i, (_, summ) in enumerate(top_results, start=1):
-            summary_rows.append({
-                "Rank": i,
-                "Brix": round(summ.total_brix, 4),
-                "pH": round(summ.total_ph, 4),
-                "Acid": round(summ.total_acid, 4),
-                "Sweetness": round(summ.total_sweetness, 4),
-                "Cost": round(summ.total_cost, 4),
-                "Score": round(summ.score, 4),
-            })
-
-        st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">🏆 Top 20 자동 배합 결과</div>', unsafe_allow_html=True)
-        st.dataframe(pd.DataFrame(summary_rows), use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        best_formula, best_summary = top_results[0]
-        validation_status, validation_details = validate_formula(best_summary, beverage_type)
-        formula_table = render_formula_table(best_formula, beverage_type)
-
-        st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">📋 최종 제품배합비</div>', unsafe_allow_html=True)
-        m1, m2, m3, m4, m5, m6 = st.columns(6)
-        m1.metric("Brix", f"{best_summary.total_brix:.4f}")
-        m2.metric("pH", f"{best_summary.total_ph:.4f}")
-        m3.metric("Acid", f"{best_summary.total_acid:.4f}")
-        m4.metric("Sweetness", f"{best_summary.total_sweetness:.4f}")
-        m5.metric("Cost", f"{best_summary.total_cost:.4f}")
-        m6.metric("Validation", validation_status)
-        st.dataframe(formula_table, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">✅ 표준배합 검증</div>', unsafe_allow_html=True)
-        if validation_details:
-            validation_df = pd.DataFrame(
-                [{"Metric": k, "Detail": v} for k, v in validation_details.items()]
-            )
-            st.dataframe(validation_df, use_container_width=True)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">📊 결과 분포</div>', unsafe_allow_html=True)
-        gc1, gc2, gc3 = st.columns(3)
-        summary_df = pd.DataFrame(summary_rows)
-        with gc1:
-            st.caption("Brix 분포")
-            st.bar_chart(summary_df.set_index("Rank")["Brix"])
-        with gc2:
-            st.caption("원가 분포")
-            st.bar_chart(summary_df.set_index("Rank")["Cost"])
-        with gc3:
-            st.caption("Score 분포")
-            st.bar_chart(summary_df.set_index("Rank")["Score"])
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">🧠 AI 연구원 + 마케팅 토의 보고서</div>', unsafe_allow_html=True)
-        if client is not None:
-            multi_report_text = ai_multi_report_with_api(
-                client=client,
-                model_name=model_name,
-                beverage_type=beverage_type,
-                flavor_name=selected_flavor,
-                formula_table=formula_table,
-                summary=best_summary,
-            )
-        if not multi_report_text:
-            multi_report_text = fallback_multi_report(
-                beverage_type=beverage_type,
-                flavor_name=selected_flavor,
-                summary=best_summary,
-                validation_status=validation_status,
-            )
-        st.text_area("평가 및 개선의견 보고서", value=multi_report_text, height=420)
-        st.markdown('</div>', unsafe_allow_html=True)
-
-        csv_data = formula_table.to_csv(index=False).encode("utf-8-sig")
-        xlsx_data = to_excel_bytes(
-            formula_table=formula_table,
-            ingredient_db_view=ingredient_db_view,
-            summary=best_summary,
-            validation_status=validation_status,
-            validation_details=validation_details,
-        )
-
-        st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-        st.markdown('<div class="section-title">⬇️ 다운로드</div>', unsafe_allow_html=True)
-        d1, d2 = st.columns(2)
-        with d1:
-            st.download_button(
-                "CSV 다운로드",
-                data=csv_data,
-                file_name=f"formula_{beverage_type}_{selected_flavor.replace(' ', '_')}.csv",
-                mime="text/csv",
-                use_container_width=True,
-            )
-        with d2:
-            st.download_button(
-                "Excel 다운로드",
-                data=xlsx_data,
-                file_name=f"formula_{beverage_type}_{selected_flavor.replace(' ', '_')}.xlsx",
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                use_container_width=True,
-            )
-        st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================================================
-# 이미지 생성
-# =========================================================
-st.markdown('<div class="robot-card">', unsafe_allow_html=True)
-st.markdown('<div class="section-title">🖼️ 제품 이미지 생성</div>', unsafe_allow_html=True)
-
-if run_image:
-    if client is None:
-        st.error("이미지 생성을 위해 OpenAI API Key가 필요하다.")
-    else:
-        current_formula = best_formula if best_formula is not None else std_formula
-        image_prompt = build_image_prompt(selected_flavor, beverage_type, current_formula)
-        with st.spinner("이미지 생성 중..."):
-            image_bytes = generate_image_with_openai(client, image_prompt, image_model_name)
-
-        if image_bytes:
-            st.image(image_bytes, caption=f"{selected_flavor} 이미지", use_container_width=True)
-        else:
-            st.error("이미지 생성에 실패했다. 모델명/API 권한/요청 제한을 확인해라.")
-else:
-    st.info("제품명과 배합비 주요 원료를 조합해 이미지가 생성된다.")
-st.markdown('</div>', unsafe_allow_html=True)
-
-# =========================================================
-# 디버그
-# =========================================================
-with st.expander("디버그 / 로드 상태", expanded=False):
-    st.write("API Key 입력 여부:", bool(api_key))
-    st.write("OpenAI client 상태:", "OK" if client is not None else f"Fallback ({client_error})")
-    st.write("기본 엑셀 파일 존재 여부:", os.path.exists(DEFAULT_EXCEL_PATH))
-    st.write("Ingredient_Master rows:", len(master_df))
-    st.write("Ingredient_Property rows:", len(prop_df))
-    st.write("Flavor_Master rows:", len(flavor_master_df))
-    st.write("Flavor_Ingredient_Map rows:", len(flavor_map_df))
-    st.write("Beverage_Type_Template rows:", len(template_df))
-    st.write("Ingredient columns:", list(ingredient_df.columns))
