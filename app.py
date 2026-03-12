@@ -1,298 +1,137 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import random
-import math
+import openai
+import json
 import io
-from openai import OpenAI
-from scipy.optimize import minimize
 
-st.set_page_config(page_title="AI 음료 개발 플랫폼", layout="wide")
+# ==========================================
+# 1. 초기 설정 및 표준 가이드라인 데이터
+# ==========================================
+st.set_page_config(page_title="Beverage AI R&D Platform", layout="wide")
 
-st.title("AI 음료 개발 플랫폼 (AI Beverage R&D Engine)")
+# 식품공전 및 R&D 표준 가이드라인 (A단계 연동)
+BEVERAGE_STANDARDS = {
+    "탄산음료": {"brix": 10.0, "acid": 0.22, "sweet": 7.0, "ph_range": "2.5~4.5", "desc": "청량감 중심, 높은 탄산 압력 대응"},
+    "과채음료": {"brix": 12.0, "acid": 0.30, "sweet": 8.0, "ph_range": "2.5~4.5", "desc": "원료 본연의 맛과 점도 유지 중요"},
+    "스포츠음료": {"brix": 6.0, "acid": 0.12, "sweet": 4.0, "ph_range": "3.0~4.5", "desc": "전해질 밸런스 및 빠른 흡수 설계"},
+    "에너지음료": {"brix": 12.5, "acid": 0.25, "sweet": 9.0, "ph_range": "2.5~4.0", "desc": "고카페인/타우린 마스킹 설계 필요"},
+    "식물성음료": {"brix": 7.0, "acid": 0.02, "sweet": 3.0, "ph_range": "6.0~7.5", "desc": "단백질 안정성 및 침전 방지 핵심"}
+}
 
-# -------------------------------------------------
-# OpenAI API
-# -------------------------------------------------
+# ==========================================
+# 2. 데이터 처리 및 계산 엔진
+# ==========================================
 
-st.sidebar.header("OpenAI API 설정")
+def calculate_formula_stats(df: pd.DataFrame):
+    """배합표의 물리적 특성 계산 (Type Safety 확보)"""
+    temp_df = df.copy()
+    num_cols = ['Usage_%', 'Brix', 'Acidity', 'Sweetness', 'Cost']
+    for col in num_cols:
+        temp_df[col] = pd.to_numeric(temp_df[col], errors='coerce').fillna(0)
 
-api_key = st.sidebar.text_input("API KEY 입력", type="password")
+    total_usage = temp_df['Usage_%'].sum()
+    res = {
+        "Brix": (temp_df['Usage_%'] * temp_df['Brix'] / 100).sum(),
+        "Acid": (temp_df['Usage_%'] * temp_df['Acidity'] / 100).sum(),
+        "Sweetness": (temp_df['Usage_%'] * temp_df['Sweetness'] / 100).sum(),
+        "Cost": (temp_df['Usage_%'] * temp_df['Cost'] / 100).sum(),
+        "Usage_Sum": total_usage
+    }
+    return res
 
-client = None
+# ==========================================
+# 3. UI 구성 및 메인 로직
+# ==========================================
 
-if api_key:
-    try:
-        client = OpenAI(api_key=api_key)
-        st.sidebar.success("API 연결 완료")
-    except:
-        st.sidebar.error("API 연결 실패")
+st.title("🧪 AI 신제품 배합비 개발 플랫폼")
+st.info("음료 유형을 선택하면 표준 가이드라인이 로드되며, 사용자의 조정 값이 AI 최적화 타겟으로 연동됩니다.")
 
-# -------------------------------------------------
-# 트렌드 제품
-# -------------------------------------------------
+# --- 사이드바: 입력 및 조정 ---
+with st.sidebar:
+    st.header("1. 기본 설정")
+    api_key = st.text_input("OpenAI API Key", type="password")
+    
+    # [연동 포인트] 음료 유형 선택
+    selected_type = st.selectbox("음료 유형 선택", list(BEVERAGE_STANDARDS.keys()))
+    std = BEVERAGE_STANDARDS[selected_type]
+    
+    st.markdown("---")
+    st.header("2. 목표 물성 조정 (AI 타겟)")
+    # [연동 포인트] 표준값을 기본값으로 설정하는 슬라이더
+    target_brix = st.slider("목표 Brix (°Bx)", 0.0, 20.0, float(std['brix']), step=0.1)
+    target_sweet = st.slider("목표 감미도 (Sweetness Index)", 0.0, 15.0, float(std['sweet']), step=0.1)
+    target_acid = st.slider("목표 산도 (Acidity %)", 0.0, 1.0, float(std['acid']), step=0.01)
 
-def trend_products():
+# --- 메인 화면: 가이드라인 및 결과 ---
+if not api_key:
+    st.warning("계속하려면 사이드바에 OpenAI API Key를 입력하세요.")
+else:
+    # 상단: 선택된 유형의 표준 가이드라인 출력
+    st.subheader(f"📊 {selected_type} 표준 가이드라인")
+    g1, g2, g3, g4 = st.columns(4)
+    g1.metric("표준 Brix", f"{std['brix']}°Bx")
+    g2.metric("표준 감미도", std['sweet'])
+    g3.metric("표준 산도", f"{std['acid']}%")
+    g4.metric("권장 pH 범위", std['ph_range'])
+    st.caption(f"💡 설계 팁: {std['desc']}")
 
-    products=[
-        ("Yuzu Spark Energy","유자"),
-        ("Peach Ice Booster","복숭아"),
-        ("Calamansi Charge","깔라만시"),
-        ("Lychee Fresh Drop","리치"),
-        ("Mango Power Burst","망고"),
-        ("Pineapple Active","파인애플"),
-        ("Grapefruit Revive","자몽"),
-        ("Blueberry Pulse","블루베리"),
-        ("Green Apple Spark","청사과"),
-        ("Passion Energy","패션후르츠"),
-        ("Cherry Vital","체리"),
-        ("Watermelon Chill","수박"),
-        ("Guava Booster","구아바"),
-        ("Lemon Lime Rush","레몬라임"),
-        ("Dragonfruit Spark","용과"),
-        ("Coconut Active","코코넛"),
-        ("Tropical Mix Burst","트로피컬"),
-        ("Berry Mix Boost","베리믹스"),
-        ("Honey Citrus Flow","허니시트러스"),
-        ("Melon Fresh Pulse","멜론")
-    ]
+    st.markdown("---")
 
-    return pd.DataFrame(products, columns=["제품명","Flavor"])
+    # Step 1: AI 원료 DB 생성 (이미 생성된 경우 재사용 가능하도록 세션 관리)
+    if st.button(f"'{selected_type}' 맞춤형 AI 원료 DB 및 배합 생성"):
+        with st.spinner("AI 연구원이 원료를 선별하고 최적 배합을 구성 중입니다..."):
+            
+            # AI 프롬프트 (JSON 모드 사용)
+            system_prompt = f"""You are a senior beverage scientist. 
+            Create a formulation for {selected_type}. 
+            The goal is Brix:{target_brix}, Sweetness:{target_sweet}, Acidity:{target_acid}.
+            Return a JSON object with 'ingredients' list. 
+            Each ingredient must have: Ingredient, Category, Brix, Acidity, Sweetness, Cost, Usage_%, Purpose."""
+            
+            user_prompt = f"Create a real-world formula for {selected_type}. The usage sum must be exactly 100% including Purified Water."
+            
+            client = openai.OpenAI(api_key=api_key)
+            response = client.chat.completions.create(
+                model="gpt-4o",
+                messages=[{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
+                response_format={"type": "json_object"}
+            )
+            
+            res_data = json.loads(response.choices[0].message.content)
+            formula_df = pd.DataFrame(res_data['ingredients'])
+            
+            # 데이터 타입 강제 변환 (오류 방지)
+            for col in ['Usage_%', 'Brix', 'Acidity', 'Sweetness', 'Cost']:
+                formula_df[col] = pd.to_numeric(formula_df[col], errors='coerce').fillna(0)
+            
+            st.session_state['current_formula'] = formula_df
 
-products = trend_products()
+    # Step 2: 결과 분석 및 출력
+    if 'current_formula' in st.session_state:
+        formula = st.session_state['current_formula']
+        stats = calculate_formula_stats(formula)
+        
+        st.subheader("🧪 AI 자동 생성 배합 결과")
+        
+        # 목표값 대비 달성도 시각화
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("최종 Brix", f"{round(stats['Brix'], 2)}°Bx", f"{round(stats['Brix'] - target_brix, 2)}")
+        c2.metric("최종 감미도", round(stats['Sweetness'], 2), f"{round(stats['Sweetness'] - target_sweet, 2)}")
+        c3.metric("최종 산도", f"{round(stats['Acid'], 3)}%", f"{round(stats['Acid'] - target_acid, 3)}")
+        c4.metric("원가 (1kg)", f"₩{int(stats['Cost'])}")
 
-st.header("1️⃣ 트렌드 음료 선택")
-
-cols = st.columns(4)
-
-for i,row in products.iterrows():
-
-    with cols[i % 4]:
-
-        if st.button(row["제품명"]):
-
-            st.session_state["selected_product"] = row["제품명"]
-            st.session_state["selected_flavor"] = row["Flavor"]
-
-if "selected_product" not in st.session_state:
-
-    st.warning("트렌드 음료를 먼저 선택하세요")
-
-    st.stop()
-
-st.success(f"선택된 제품 : {st.session_state['selected_product']}")
-
-flavor = st.session_state["selected_flavor"]
-
-# -------------------------------------------------
-# 목표 물성
-# -------------------------------------------------
-
-st.header("2️⃣ 목표 물성 설정")
-
-col1,col2,col3 = st.columns(3)
-
-with col1:
-    target_brix = st.slider("목표 당도 (Brix)",4,14,10)
-
-with col2:
-    target_sweet = st.slider("목표 감미도",1,15,7)
-
-with col3:
-    target_acid = st.slider("목표 산도",0.05,0.5,0.2)
-
-# -------------------------------------------------
-# 원료 DB 생성
-# -------------------------------------------------
-
-def generate_ingredient_db(flavor):
-
-    ingredients=[]
-
-    sugars=["Sucrose","Fructose","Glucose","HFCS","Allulose"]
-    acids=["Citric Acid","Malic Acid","Lactic Acid"]
-    extracts=[f"{flavor} Extract",f"{flavor} Concentrate"]
-    stabilizers=["Pectin","CMC","Xanthan"]
-
-    for i in range(500):
-
-        cat=random.choice(["Sugar","Acid","Extract","Stabilizer"])
-
-        if cat=="Sugar":
-            name=random.choice(sugars)
-        elif cat=="Acid":
-            name=random.choice(acids)
-        elif cat=="Extract":
-            name=random.choice(extracts)
+        # 배합표 (R&D 표준 양식)
+        st.dataframe(formula.style.highlight_max(axis=0, subset=['Usage_%']), use_container_width=True)
+        
+        # 합계 검증
+        if abs(stats['Usage_Sum'] - 100) > 0.01:
+            st.warning(f"⚠️ 배합 합계가 {stats['Usage_Sum']}%입니다. 100%가 되도록 조정이 필요할 수 있습니다.")
         else:
-            name=random.choice(stabilizers)
+            st.success("✅ 배합 합계 100.0% 확인됨")
 
-        ingredient={
-            "Ingredient":f"{name}_{i}",
-            "Category":cat,
-            "Brix":round(random.uniform(0,100),2),
-            "Sweetness":round(random.uniform(0,200),2),
-            "Acid":round(random.uniform(0,6),3),
-            "Cost":round(random.uniform(500,9000),2)
-        }
-
-        ingredients.append(ingredient)
-
-    return pd.DataFrame(ingredients)
-
-st.header("3️⃣ 원료 데이터 생성")
-
-if st.button("원료 DB 500개 생성"):
-
-    db = generate_ingredient_db(flavor)
-
-    st.session_state["db"] = db
-
-    st.success("원료 데이터 생성 완료")
-
-if "db" not in st.session_state:
-    st.stop()
-
-st.dataframe(st.session_state["db"].head(20))
-
-# -------------------------------------------------
-# 배합 Solver
-# -------------------------------------------------
-
-def optimize_formula(db,target_brix,target_sweet,target_acid):
-
-    sugar=db[db.Category=="Sugar"].sample(1).iloc[0]
-    acid=db[db.Category=="Acid"].sample(1).iloc[0]
-    flavor=db[db.Category=="Extract"].sample(1).iloc[0]
-    stabilizer=db[db.Category=="Stabilizer"].sample(1).iloc[0]
-
-    ingredients=[sugar,acid,flavor,stabilizer]
-
-    def objective(x):
-
-        brix=np.sum(x*[i.Brix for i in ingredients])/100
-        sweet=np.sum(x*[i.Sweetness for i in ingredients])/100
-        acid_val=np.sum(x*[i.Acid for i in ingredients])/100
-
-        error=(brix-target_brix)**2 + (sweet-target_sweet)**2 + (acid_val-target_acid)**2
-
-        return error
-
-    x0=[6,0.2,1.2,0.1]
-
-    bounds=[(3,12),(0.1,0.5),(0.5,3),(0.05,0.3)]
-
-    result=minimize(objective,x0,bounds=bounds)
-
-    sugar_u,acid_u,flavor_u,stab_u=result.x
-
-    water=100-(sugar_u+acid_u+flavor_u+stab_u)
-
-    formula=pd.DataFrame({
-        "원료":["Water",sugar.Ingredient,acid.Ingredient,flavor.Ingredient,stabilizer.Ingredient],
-        "사용량(%)":[water,sugar_u,acid_u,flavor_u,stab_u]
-    })
-
-    return formula
-
-# -------------------------------------------------
-# 배합 계산
-# -------------------------------------------------
-
-st.header("4️⃣ AI 배합 계산")
-
-if st.button("배합 계산 실행"):
-
-    formula=optimize_formula(st.session_state.db,target_brix,target_sweet,target_acid)
-
-    st.session_state["formula"]=formula
-
-    st.dataframe(formula)
-
-# -------------------------------------------------
-# 물성 계산
-# -------------------------------------------------
-
-def calculate_properties(formula,db):
-
-    brix=0
-    acid=0
-
-    for _,row in formula.iterrows():
-
-        name=row["원료"]
-
-        data=db[db.Ingredient==name]
-
-        if len(data)>0:
-
-            brix+=row["사용량(%)"]*data.iloc[0].Brix/100
-            acid+=row["사용량(%)"]*data.iloc[0].Acid/100
-
-    ph=3-math.log10(acid+0.0001)
-
-    return round(brix,2),round(acid,3),round(ph,2)
-
-if "formula" in st.session_state:
-
-    st.header("5️⃣ 배합 물성 계산")
-
-    brix,acid,ph=calculate_properties(st.session_state.formula,st.session_state.db)
-
-    st.write("계산 Brix:",brix)
-    st.write("계산 산도:",acid)
-    st.write("예측 pH:",ph)
-
-# -------------------------------------------------
-# Excel Export
-# -------------------------------------------------
-
-if "formula" in st.session_state:
-
-    buffer=io.BytesIO()
-
-    with pd.ExcelWriter(buffer,engine="xlsxwriter") as writer:
-
-        st.session_state.formula.to_excel(writer,index=False)
-
-    st.download_button(
-        "배합표 Excel 다운로드",
-        buffer.getvalue(),
-        "beverage_formula.xlsx",
-        "application/vnd.ms-excel"
-    )
-
-# -------------------------------------------------
-# AI 연구원 평가
-# -------------------------------------------------
-
-if "formula" in st.session_state and client:
-
-    st.header("6️⃣ AI 연구원 평가")
-
-    if st.button("AI 배합 평가 실행"):
-
-        table=st.session_state.formula.to_string()
-
-        prompt=f"""
-당신은 글로벌 음료회사 수석 연구원입니다.
-
-다음 배합을 기술적으로 평가하세요.
-
-{table}
-
-다음 항목을 분석하세요
-
-1 맛 밸런스
-2 감미 구조
-3 산미 균형
-4 기술 개선 제안
-5 상업화 가능성
-"""
-
-        response=client.chat.completions.create(
-            model="gpt-4.1",
-            messages=[{"role":"user","content":prompt}]
-        )
-
-        st.write(response.choices[0].message.content)
+        # 엑셀 다운로드
+        output = io.BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            formula.to_excel(writer, index=False, sheet_name='Formula')
+        st.download_button(label="📄 R&D 배합표 엑셀 다운로드", data=output.getvalue(), file_name=f"{selected_type}_AI_Recipe.xlsx")
