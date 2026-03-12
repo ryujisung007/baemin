@@ -2,318 +2,278 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import random
-import json
-import re
 from openai import OpenAI
 
 st.set_page_config(page_title="AI Beverage R&D Platform", layout="wide")
 
 st.title("AI Beverage Development Platform")
 
-# ---------------------------
-# API KEY 입력
-# ---------------------------
+# -----------------------
+
+# API KEY
+
+# -----------------------
 
 st.sidebar.header("OpenAI API")
 
-api_key = st.sidebar.text_input("Enter API Key", type="password")
+api_key = st.sidebar.text_input("API KEY", type="password")
 
 client = None
 
 if api_key:
-    try:
-        client = OpenAI(api_key=api_key)
-        st.sidebar.success("API Connected")
-    except:
-        st.sidebar.error("API Error")
+try:
+client = OpenAI(api_key=api_key)
+st.sidebar.success("Connected")
+except:
+st.sidebar.error("API Error")
 
+# -----------------------
 
-# ---------------------------
-# JSON 안전 파싱
-# ---------------------------
+# 트렌드 제품
 
-def safe_json(text):
-
-    try:
-        return json.loads(text)
-
-    except:
-        match = re.search(r'\{.*\}', text, re.S)
-
-        if match:
-            return json.loads(match.group())
-
-        return None
-
-
-# ---------------------------
-# 트렌드 제품 생성
-# ---------------------------
+# -----------------------
 
 def generate_trend_products():
 
-    products = [
-        ("Yuzu Spark Energy","Yuzu"),
-        ("Peach Ice Booster","Peach"),
-        ("Calamansi Charge","Calamansi"),
-        ("Lychee Fresh Drop","Lychee"),
-        ("Mango Power Burst","Mango"),
-        ("Pineapple Active","Pineapple"),
-        ("Grapefruit Revive","Grapefruit"),
-        ("Blueberry Pulse","Blueberry"),
-        ("Green Apple Spark","Green Apple"),
-        ("Passion Energy","Passionfruit"),
-        ("Cherry Vital","Cherry"),
-        ("Watermelon Chill","Watermelon"),
-        ("Guava Booster","Guava"),
-        ("Lemon Lime Rush","Lemon Lime"),
-        ("Dragonfruit Spark","Dragonfruit"),
-        ("Coconut Active","Coconut"),
-        ("Tropical Mix Burst","Tropical"),
-        ("Berry Mix Boost","Berry Mix"),
-        ("Honey Citrus Flow","Honey Citrus"),
-        ("Melon Fresh Pulse","Melon")
-    ]
+```
+products = [
 
-    df = pd.DataFrame(products, columns=["Product","Flavor"])
+    ("Yuzu Spark Energy","Yuzu"),
+    ("Peach Ice Booster","Peach"),
+    ("Calamansi Charge","Calamansi"),
+    ("Lychee Fresh Drop","Lychee"),
+    ("Mango Power Burst","Mango"),
+    ("Pineapple Active","Pineapple"),
+    ("Grapefruit Revive","Grapefruit"),
+    ("Blueberry Pulse","Blueberry"),
+    ("Green Apple Spark","Green Apple"),
+    ("Passion Energy","Passionfruit"),
+    ("Cherry Vital","Cherry"),
+    ("Watermelon Chill","Watermelon"),
+    ("Guava Booster","Guava"),
+    ("Lemon Lime Rush","Lemon Lime"),
+    ("Dragonfruit Spark","Dragonfruit"),
+    ("Coconut Active","Coconut"),
+    ("Tropical Mix Burst","Tropical"),
+    ("Berry Mix Boost","Berry Mix"),
+    ("Honey Citrus Flow","Honey Citrus"),
+    ("Melon Fresh Pulse","Melon")
 
-    return df
+]
 
-
-# ---------------------------
-# 원료 DB 생성
-# ---------------------------
-
-def generate_ingredient_db(flavor):
-
-    ingredients = []
-
-    sugars = ["Sucrose","Fructose","Glucose","HFCS","Erythritol","Allulose"]
-    acids = ["Citric Acid","Malic Acid","Tartaric Acid"]
-    extracts = [f"{flavor} Extract",f"{flavor} Concentrate"]
-    stabilizers = ["Pectin","CMC","Xanthan Gum"]
-    colors = ["Beta Carotene","Caramel Color","Anthocyanin"]
-
-    for i in range(500):
-
-        name = random.choice(
-            sugars + acids + extracts + stabilizers + colors
-        ) + f"_{i}"
-
-        category = random.choice(
-            ["Sugar","Acid","Extract","Stabilizer","Color","Flavor"]
-        )
-
-        ingredient = {
-
-            "Ingredient":name,
-            "Category":category,
-            "Flavor":flavor,
-            "Brix":round(random.uniform(0,100),2),
-            "Acid":round(random.uniform(0,6),3),
-            "Sweetness":round(random.uniform(0,200),2),
-            "Cost":round(random.uniform(500,9000),2),
-
-            "Purpose":random.choice(
-                ["Sweetener","Acidity","Flavor","Stabilizer","Color"]
-            ),
-
-            "FlavorContribution":random.choice(
-                ["Sweet","Sour","Citrus","Berry","Neutral"]
-            )
-        }
-
-        ingredients.append(ingredient)
-
-    return pd.DataFrame(ingredients)
-
-
-# ---------------------------
-# 배합 생성
-# ---------------------------
-
-def generate_formula(db, target_brix, target_sweet, target_acid):
-
-    best_score = 999999
-    best_formula = None
-
-    for _ in range(1000):
-
-        sample = db.sample(6)
-
-        usages = np.random.rand(6)
-
-        usages = usages / usages.sum() * 100
-
-        formula = sample.copy()
-
-        formula["Usage"] = usages
-
-        total_brix = np.sum(formula["Usage"] * formula["Brix"] / 100)
-        total_sweet = np.sum(formula["Usage"] * formula["Sweetness"] / 100)
-        total_acid = np.sum(formula["Usage"] * formula["Acid"] / 100)
-
-        score = (
-            abs(target_brix-total_brix)
-            + abs(target_sweet-total_sweet)
-            + abs(target_acid-total_acid)
-        )
-
-        if score < best_score:
-
-            best_score = score
-            best_formula = formula
-
-    return best_formula
-
-
-# ---------------------------
-# 표준 배합 검증
-# ---------------------------
-
-def validate_formula(df):
-
-    brix = np.sum(df["Usage"] * df["Brix"] / 100)
-    acid = np.sum(df["Usage"] * df["Acid"] / 100)
-
-    result = "PASS"
-
-    if not (6 <= brix <= 14):
-        result = "FAIL"
-
-    if not (0.1 <= acid <= 0.35):
-        result = "FAIL"
-
-    return brix, acid, result
-
-
-# ---------------------------
-# AI 연구원 평가
-# ---------------------------
-
-def ai_evaluate(df):
-
-    if client is None:
-        return "API key required"
-
-    table = df.to_string()
-
-    prompt = f"""
-Evaluate beverage formulation.
-
-Formula:
-
-{table}
-
-Provide R&D evaluation and improvement suggestions.
-"""
-
-    try:
-
-        response = client.chat.completions.create(
-            model="gpt-4.1",
-            messages=[{"role":"user","content":prompt}]
-        )
-
-        return response.choices[0].message.content
-
-    except:
-
-        return "AI evaluation failed"
-
-
-# ---------------------------
-# UI
-# ---------------------------
-
-st.header("1. Trend Products")
+return pd.DataFrame(products, columns=["Product","Flavor"])
+```
 
 products = generate_trend_products()
 
-st.dataframe(products)
+st.header("1. Trend Products")
 
-selected = st.selectbox(
-    "Select Product",
-    products["Product"]
-)
+st.write("Click a product to select")
 
-flavor = products.loc[
-    products["Product"] == selected,"Flavor"
-].values[0]
+cols = st.columns(4)
 
+for i, row in products.iterrows():
 
-# ---------------------------
+```
+with cols[i % 4]:
+
+    if st.button(row["Product"]):
+
+        st.session_state["selected_product"] = row["Product"]
+        st.session_state["selected_flavor"] = row["Flavor"]
+```
+
+# -----------------------
+
+# 선택된 제품 표시
+
+# -----------------------
+
+if "selected_product" in st.session_state:
+
+```
+st.success(f"Selected Product : {st.session_state['selected_product']}")
+
+flavor = st.session_state["selected_flavor"]
+```
+
+else:
+
+```
+st.warning("Select a product first")
+st.stop()
+```
+
+# -----------------------
+
 # 목표 물성
-# ---------------------------
+
+# -----------------------
 
 st.header("2. Target Properties")
 
-target_brix = st.slider("Target Brix",4,14,10)
-target_sweet = st.slider("Target Sweetness",1,10,7)
-target_acid = st.slider("Target Acid",0.05,0.5,0.2)
+target_brix = st.slider("Target Brix", 4, 14, 10)
 
+target_sweet = st.slider("Target Sweetness", 1, 10, 7)
 
-# ---------------------------
+target_acid = st.slider("Target Acid", 0.05, 0.5, 0.2)
+
+# -----------------------
+
 # 원료 DB 생성
-# ---------------------------
 
-st.header("3. Generate Ingredient DB")
+# -----------------------
 
-if st.button("Generate Ingredient DB (500)"):
+def generate_ingredient_db(flavor):
 
-    db = generate_ingredient_db(flavor)
+```
+ingredients = []
 
-    st.session_state["db"] = db
+for i in range(500):
 
-    st.success("Ingredient DB Generated")
+    ingredient = {
+
+        "Ingredient": f"{flavor}_ingredient_{i}",
+
+        "Category": random.choice(
+            ["Sugar","Acid","Extract","Stabilizer","Color"]
+        ),
+
+        "Brix": round(random.uniform(0,100),2),
+
+        "Sweetness": round(random.uniform(0,200),2),
+
+        "Acid": round(random.uniform(0,5),3),
+
+        "Cost": round(random.uniform(500,8000),2)
+
+    }
+
+    ingredients.append(ingredient)
+
+return pd.DataFrame(ingredients)
+```
+
+st.header("3. Ingredient DB")
+
+if st.button("Generate Ingredient DB"):
+
+```
+db = generate_ingredient_db(flavor)
+
+st.session_state["db"] = db
+
+st.success("500 Ingredient Generated")
+```
 
 if "db" in st.session_state:
 
-    st.dataframe(st.session_state["db"].head(20))
+```
+st.dataframe(st.session_state["db"].head(20))
+```
 
+# -----------------------
 
-# ---------------------------
+# 배합 계산
+
+# -----------------------
+
+def calculate_formula(db, target_brix, target_sweet, target_acid):
+
+```
+sugar = db[db["Category"]=="Sugar"].sample(1)
+acid = db[db["Category"]=="Acid"].sample(1)
+flavor = db[db["Category"]=="Extract"].sample(1)
+stabilizer = db[db["Category"]=="Stabilizer"].sample(1)
+
+sugar_usage = target_brix * 0.8
+acid_usage = target_acid * 2
+
+flavor_usage = random.uniform(0.8,1.5)
+stabilizer_usage = random.uniform(0.05,0.2)
+
+water_usage = 100 - (
+    sugar_usage +
+    acid_usage +
+    flavor_usage +
+    stabilizer_usage
+)
+
+formula = pd.DataFrame({
+
+    "Ingredient":[
+        "Water",
+        sugar.iloc[0]["Ingredient"],
+        acid.iloc[0]["Ingredient"],
+        flavor.iloc[0]["Ingredient"],
+        stabilizer.iloc[0]["Ingredient"]
+    ],
+
+    "Usage":[
+        water_usage,
+        sugar_usage,
+        acid_usage,
+        flavor_usage,
+        stabilizer_usage
+    ]
+
+})
+
+return formula
+```
+
+# -----------------------
+
 # 배합 생성
-# ---------------------------
+
+# -----------------------
 
 st.header("4. Generate Formula")
 
-if st.button("Generate Formula"):
+if st.button("Calculate Formula"):
 
-    db = st.session_state["db"]
+```
+db = st.session_state["db"]
 
-    formula = generate_formula(db,target_brix,target_sweet,target_acid)
+formula = calculate_formula(db,target_brix,target_sweet,target_acid)
 
-    st.session_state["formula"] = formula
+st.session_state["formula"] = formula
 
-    st.dataframe(formula)
+st.dataframe(formula)
+```
 
+# -----------------------
 
-# ---------------------------
-# 검증
-# ---------------------------
-
-if "formula" in st.session_state:
-
-    st.header("5. Formula Validation")
-
-    brix, acid, result = validate_formula(st.session_state["formula"])
-
-    st.write("Brix:",round(brix,2))
-    st.write("Acid:",round(acid,3))
-    st.write("Result:",result)
-
-
-# ---------------------------
 # AI 평가
-# ---------------------------
+
+# -----------------------
 
 if "formula" in st.session_state:
 
-    st.header("6. AI R&D Evaluation")
+```
+st.header("5. AI R&D Evaluation")
 
-    if st.button("Evaluate Formula"):
+if st.button("AI Evaluate"):
 
-        evaluation = ai_evaluate(st.session_state["formula"])
+    table = st.session_state["formula"].to_string()
 
-        st.write(evaluation)
+    prompt = f"""
+```
+
+You are beverage R&D scientist.
+
+Evaluate this formulation.
+
+{table}
+
+Give improvement suggestions.
+"""
+
+```
+    response = client.chat.completions.create(
+        model="gpt-4.1",
+        messages=[{"role":"user","content":prompt}]
+    )
+
+    st.write(response.choices[0].message.content)
+```
