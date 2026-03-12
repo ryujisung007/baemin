@@ -4,23 +4,43 @@ import pandas as pd
 import random
 from openai import OpenAI
 
-# -------------------------------
-# API 설정
-# -------------------------------
-client = OpenAI(api_key="YOUR_API_KEY")
-
 st.set_page_config(page_title="AI Beverage R&D Platform", layout="wide")
 
 st.title("AI Beverage Development Platform")
 
-# -------------------------------
-# AI Ingredient DB 생성
-# -------------------------------
+# -----------------------------
+# API KEY 입력
+# -----------------------------
+
+st.sidebar.header("OpenAI API")
+
+api_key = st.sidebar.text_input(
+    "Enter OpenAI API Key",
+    type="password"
+)
+
+client = None
+
+if api_key:
+    try:
+        client = OpenAI(api_key=api_key)
+        st.sidebar.success("API Key loaded")
+    except Exception:
+        st.sidebar.error("API Key initialization failed")
+
+
+# -----------------------------
+# Ingredient DB 생성 함수
+# -----------------------------
 
 def generate_ingredient_db():
 
+    if client is None:
+        st.warning("Enter valid API Key first")
+        return pd.DataFrame()
+
     prompt = """
-Create a beverage ingredient database.
+Create beverage ingredient database.
 
 Return JSON array with fields:
 
@@ -32,50 +52,65 @@ Acidity
 Sweetness
 Cost
 
-Create about 50 ingredients.
+Create about 30 ingredients.
 """
 
-    response = client.chat.completions.create(
-        model="gpt-4.1",
-        messages=[
-            {"role":"system","content":"You are a beverage R&D scientist"},
-            {"role":"user","content":prompt}
-        ]
-    )
-
-    text = response.choices[0].message.content
-
     try:
-        data = pd.read_json(text)
-    except:
-        data = pd.DataFrame()
 
-    return data
+        response = client.chat.completions.create(
+            model="gpt-4.1",
+            messages=[
+                {"role":"system","content":"You are a beverage R&D scientist"},
+                {"role":"user","content":prompt}
+            ],
+            temperature=0.2
+        )
+
+        text = response.choices[0].message.content
+
+        df = pd.read_json(text)
+
+        return df
+
+    except Exception as e:
+
+        st.error("API request failed")
+        st.write(e)
+
+        return pd.DataFrame()
 
 
-# -------------------------------
-# 세션 DB 생성
-# -------------------------------
+# -----------------------------
+# 세션 상태
+# -----------------------------
 
 if "ingredient_db" not in st.session_state:
     st.session_state.ingredient_db = pd.DataFrame()
 
-# -------------------------------
-# 사이드바
-# -------------------------------
+
+# -----------------------------
+# DB 생성 버튼
+# -----------------------------
 
 st.sidebar.header("AI Database")
 
-if st.sidebar.button("Generate Ingredient DB (AI)"):
+if st.sidebar.button("Generate Ingredient DB"):
 
-    db = generate_ingredient_db()
+    if not api_key:
+        st.warning("Please input API key first")
 
-    st.session_state.ingredient_db = db
+    else:
+
+        db = generate_ingredient_db()
+
+        if len(db) > 0:
+            st.session_state.ingredient_db = db
+            st.success("Ingredient DB created")
 
 
-# -------------------------------
-# DB 화면
-# -------------------------------
+# -----------------------------
+# DB 출력
+# -----------------------------
 
 st.header("Ingredient Database")
 
@@ -85,17 +120,17 @@ if len(st.session_state.ingredient_db) > 0:
 
 else:
 
-    st.info("DB not created yet")
+    st.info("No database yet")
 
 
-# -------------------------------
-# 음료 개발 영역
-# -------------------------------
+# -----------------------------
+# 음료 개발
+# -----------------------------
 
 st.header("Beverage Development")
 
 beverage_type = st.selectbox(
-"Select Beverage Type",
+"Beverage Type",
 ["Carbonated","Juice","Sports Drink","Energy Drink"]
 )
 
@@ -105,13 +140,14 @@ target_brix = st.slider("Target Brix",5.0,15.0,11.0)
 
 target_acid = st.slider("Target Acidity",0.1,1.5,0.5)
 
-# -------------------------------
+
+# -----------------------------
 # 레시피 생성
-# -------------------------------
+# -----------------------------
 
 def generate_recipe(db):
 
-    ingredients = db.sample(4)
+    ingredients = db.sample(min(4,len(db)))
 
     recipe=[]
 
@@ -128,16 +164,47 @@ def generate_recipe(db):
 
         total+=usage
 
-    water=100-total
+    water=max(0,100-total)
 
     recipe.append(["Water",round(water,2)])
 
     return recipe
 
 
-# -------------------------------
-# AI 레시피 생성
-# -------------------------------
+if st.button("Generate AI Recipe"):
 
-if st.button("Generate AI Rec
+    db=st.session_state.ingredient_db
+
+    if len(db)==0:
+
+        st.warning("Generate Ingredient DB first")
+
+    else:
+
+        recipe=generate_recipe(db)
+
+        df=pd.DataFrame(recipe,columns=["Ingredient","Usage %"])
+
+        st.subheader("Formula Sheet")
+
+        st.dataframe(df)
+
+        st.subheader("Total Usage")
+
+        st.write(round(df["Usage %"].sum(),2))
+
+
+# -----------------------------
+# CSV 다운로드
+# -----------------------------
+
+if len(st.session_state.ingredient_db)>0:
+
+    csv=st.session_state.ingredient_db.to_csv(index=False)
+
+    st.download_button(
+        label="Download Ingredient DB",
+        data=csv,
+        file_name="ingredient_db.csv"
+    )
 ```
