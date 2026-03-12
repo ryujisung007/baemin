@@ -1,67 +1,143 @@
+```python
 import streamlit as st
 import pandas as pd
-import numpy as np
 import random
+from openai import OpenAI
 
-st.title("AI Beverage Formula Generator")
+# -------------------------------
+# API 설정
+# -------------------------------
+client = OpenAI(api_key="YOUR_API_KEY")
 
-ingredient_db = st.file_uploader("Ingredient DB Upload (CSV)")
-flavor_db = st.file_uploader("Flavor Map Upload (CSV)")
+st.set_page_config(page_title="AI Beverage R&D Platform", layout="wide")
+
+st.title("AI Beverage Development Platform")
+
+# -------------------------------
+# AI Ingredient DB 생성
+# -------------------------------
+
+def generate_ingredient_db():
+
+    prompt = """
+Create a beverage ingredient database.
+
+Return JSON array with fields:
+
+Ingredient
+Category
+Brix
+pH
+Acidity
+Sweetness
+Cost
+
+Create about 50 ingredients.
+"""
+
+    response = client.chat.completions.create(
+        model="gpt-4.1",
+        messages=[
+            {"role":"system","content":"You are a beverage R&D scientist"},
+            {"role":"user","content":prompt}
+        ]
+    )
+
+    text = response.choices[0].message.content
+
+    try:
+        data = pd.read_json(text)
+    except:
+        data = pd.DataFrame()
+
+    return data
+
+
+# -------------------------------
+# 세션 DB 생성
+# -------------------------------
+
+if "ingredient_db" not in st.session_state:
+    st.session_state.ingredient_db = pd.DataFrame()
+
+# -------------------------------
+# 사이드바
+# -------------------------------
+
+st.sidebar.header("AI Database")
+
+if st.sidebar.button("Generate Ingredient DB (AI)"):
+
+    db = generate_ingredient_db()
+
+    st.session_state.ingredient_db = db
+
+
+# -------------------------------
+# DB 화면
+# -------------------------------
+
+st.header("Ingredient Database")
+
+if len(st.session_state.ingredient_db) > 0:
+
+    st.dataframe(st.session_state.ingredient_db)
+
+else:
+
+    st.info("DB not created yet")
+
+
+# -------------------------------
+# 음료 개발 영역
+# -------------------------------
+
+st.header("Beverage Development")
 
 beverage_type = st.selectbox(
 "Select Beverage Type",
-["Carbonated","Sports","Juice"]
+["Carbonated","Juice","Sports Drink","Energy Drink"]
 )
 
-flavor = st.text_input("Flavor Name")
+flavor = st.text_input("Flavor")
 
 target_brix = st.slider("Target Brix",5.0,15.0,11.0)
-target_acid = st.slider("Target Acid",0.1,1.5,0.5)
 
-if st.button("Generate Formula"):
+target_acid = st.slider("Target Acidity",0.1,1.5,0.5)
 
-    ing = pd.read_csv(ingredient_db)
-    fmap = pd.read_csv(flavor_db)
+# -------------------------------
+# 레시피 생성
+# -------------------------------
 
-    subset = fmap[fmap["Flavor_Name"]==flavor]
+def generate_recipe(db):
 
-    result = []
+    ingredients = db.sample(4)
 
-    for i,row in subset.iterrows():
+    recipe=[]
 
-        usage = random.uniform(row["Min_%"],row["Max_%"])
+    total=0
 
-        name = row["Ingredient"]
+    for i,row in ingredients.iterrows():
 
-        prop = ing[ing["Ingredient"]==name]
+        usage=random.uniform(0.1,5)
 
-        if len(prop)>0:
-            brix = prop["Brix"].values[0]*usage/100
-            acid = prop["Acidity"].values[0]*usage/100
-            cost = prop["Cost"].values[0]*usage/100
-        else:
-            brix=0
-            acid=0
-            cost=0
-
-        result.append([
-            name,
-            round(usage,2),
-            round(brix,2),
-            round(acid,2),
-            round(cost,2)
+        recipe.append([
+            row["Ingredient"],
+            round(usage,2)
         ])
 
-    df = pd.DataFrame(result,
-        columns=["Ingredient","Usage %","Brix Contribution","Acid Contribution","Cost Contribution"]
-    )
+        total+=usage
 
-    st.subheader("Generated Formula")
+    water=100-total
 
-    st.dataframe(df)
+    recipe.append(["Water",round(water,2)])
 
-    st.subheader("Total")
+    return recipe
 
-    total=df.sum(numeric_only=True)
 
-    st.write(total)
+# -------------------------------
+# AI 레시피 생성
+# -------------------------------
+
+if st.button("Generate AI Rec
+```
