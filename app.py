@@ -183,4 +183,24 @@ else:
             # 검증 (Validation)
             target_range = BEVERAGE_TEMPLATES[bev_type]
             if target_range['brix'][0] <= stats['Brix'] <= target_range['brix'][1]:
-                st.info(f"✅ 식품
+                st.info(f"✅ 식품공전/표준 기준 적합: {bev_type} Brix 범위 만족")
+            else:
+                st.error(f"⚠️ 기준 미달: {bev_type} 표준 Brix는 {target_range['brix']}입니다.")
+
+            # AI 연구원 평가
+            st.markdown("### 👨‍🔬 AI Senior Researcher Evaluation")
+            eval_prompt = f"Evaluate this {bev_type} recipe: {formula.to_dict()}. Target was Brix {t_brix}, Acid {t_acid}. Provide technical feedback in Korean."
+            evaluation = call_openai(api_key, "You are a senior beverage R&D scientist with 30 years experience.", eval_prompt)
+            st.write(evaluation)
+
+            # 다운로드 버튼
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                formula.to_excel(writer, index=False, sheet_name='Formulation')
+            st.download_button(label="Download Excel Formulation", data=output.getvalue(), file_name=f"{selected_flavor}_Recipe.xlsx")
+
+# ==========================================
+# 5. 추가 유틸리티 (에러 방지용)
+# ==========================================
+if 'flavors' not in st.session_state:
+    st.session_state['flavors'] = []
