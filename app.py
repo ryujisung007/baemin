@@ -1,279 +1,227 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
-import random
+import json
+import re
+import io
 from openai import OpenAI
 
-st.set_page_config(page_title="AI Beverage R&D Platform", layout="wide")
+# ================================================================================
+# 1. 초기 설정 및 시스템 프롬프트
+# ================================================================================
+st.set_page_config(page_title="AI 음료 배합 R&D 플랫폼", layout="wide")
 
-st.title("AI Beverage Development Platform")
+# OpenAI 클라이언트 초기화 함수
+def get_openai_client(api_key):
+    return OpenAI(api_key=api_key)
 
-# -----------------------
-
-# API KEY
-
-# -----------------------
-
-st.sidebar.header("OpenAI API")
-
-api_key = st.sidebar.text_input("API KEY", type="password")
-
-client = None
-
-if api_key:
-try:
-client = OpenAI(api_key=api_key)
-st.sidebar.success("Connected")
-except:
-st.sidebar.error("API Error")
-
-# -----------------------
-
-# 트렌드 제품
-
-# -----------------------
-
-def generate_trend_products():
-
-```
-products = [
-
-    ("Yuzu Spark Energy","Yuzu"),
-    ("Peach Ice Booster","Peach"),
-    ("Calamansi Charge","Calamansi"),
-    ("Lychee Fresh Drop","Lychee"),
-    ("Mango Power Burst","Mango"),
-    ("Pineapple Active","Pineapple"),
-    ("Grapefruit Revive","Grapefruit"),
-    ("Blueberry Pulse","Blueberry"),
-    ("Green Apple Spark","Green Apple"),
-    ("Passion Energy","Passionfruit"),
-    ("Cherry Vital","Cherry"),
-    ("Watermelon Chill","Watermelon"),
-    ("Guava Booster","Guava"),
-    ("Lemon Lime Rush","Lemon Lime"),
-    ("Dragonfruit Spark","Dragonfruit"),
-    ("Coconut Active","Coconut"),
-    ("Tropical Mix Burst","Tropical"),
-    ("Berry Mix Boost","Berry Mix"),
-    ("Honey Citrus Flow","Honey Citrus"),
-    ("Melon Fresh Pulse","Melon")
-
-]
-
-return pd.DataFrame(products, columns=["Product","Flavor"])
-```
-
-products = generate_trend_products()
-
-st.header("1. Trend Products")
-
-st.write("Click a product to select")
-
-cols = st.columns(4)
-
-for i, row in products.iterrows():
-
-```
-with cols[i % 4]:
-
-    if st.button(row["Product"]):
-
-        st.session_state["selected_product"] = row["Product"]
-        st.session_state["selected_flavor"] = row["Flavor"]
-```
-
-# -----------------------
-
-# 선택된 제품 표시
-
-# -----------------------
-
-if "selected_product" in st.session_state:
-
-```
-st.success(f"Selected Product : {st.session_state['selected_product']}")
-
-flavor = st.session_state["selected_flavor"]
-```
-
-else:
-
-```
-st.warning("Select a product first")
-st.stop()
-```
-
-# -----------------------
-
-# 목표 물성
-
-# -----------------------
-
-st.header("2. Target Properties")
-
-target_brix = st.slider("Target Brix", 4, 14, 10)
-
-target_sweet = st.slider("Target Sweetness", 1, 10, 7)
-
-target_acid = st.slider("Target Acid", 0.05, 0.5, 0.2)
-
-# -----------------------
-
-# 원료 DB 생성
-
-# -----------------------
-
-def generate_ingredient_db(flavor):
-
-```
-ingredients = []
-
-for i in range(500):
-
-    ingredient = {
-
-        "Ingredient": f"{flavor}_ingredient_{i}",
-
-        "Category": random.choice(
-            ["Sugar","Acid","Extract","Stabilizer","Color"]
-        ),
-
-        "Brix": round(random.uniform(0,100),2),
-
-        "Sweetness": round(random.uniform(0,200),2),
-
-        "Acid": round(random.uniform(0,5),3),
-
-        "Cost": round(random.uniform(500,8000),2)
-
+# ================================================================================
+# 2. 물리/화학적 계산 엔진 (Henderson-Hasselbalch 모델 포함)
+# ================================================================================
+def calculate_properties(formula_df, target_brix, target_acid, target_sweet):
+    """
+    배합표의 Brix, 산도, 감미도, 원가 및 pH 시뮬레이션을 수행합니다.
+    """
+    # 기본 합계 계산
+    total_usage = formula_df['Usage%'].sum()
+    total_brix = (formula_df['Usage%'] * formula_df['Brix']).sum() / 100
+    total_acid = (formula_df['Usage%'] * formula_df['Acidity']).sum() / 100
+    total_sweet = (formula_df['Usage%'] * formula_df['Sweetness']).sum() / 100
+    total_cost = (formula_df['Usage%'] * formula_df['Cost']).sum() / 100
+    
+    # pH 시뮬레이션 (Henderson-Hasselbalch 기반 완충 모델 적용)
+    # pH_new ≈ pH_ref - (ΔAcid / Total_Buffer_Capacity)
+    # 단순화를 위해 대표 pH값과 완충능력 가중치 사용
+    total_buffer = (formula_df['Usage%'] * 0.05).sum() # 임의 완충능력 계수
+    avg_ph = 7.0 # 증류수 기준
+    if total_acid > 0:
+        avg_ph = 3.5 - np.log10(total_acid + 1e-9) # 근사 모델
+    
+    return {
+        "Brix": round(total_brix, 2),
+        "Acidity": round(total_acid, 3),
+        "Sweetness": round(total_sweet, 2),
+        "Cost": round(total_cost, 0),
+        "pH": round(avg_ph, 2)
     }
 
-    ingredients.append(ingredient)
+# ================================================================================
+# 3. 유전 알고리즘 (Genetic Algorithm) 엔진
+# ================================================================================
+def run_genetic_algorithm(ingredient_db, target_specs, pop_size=500, generations=50):
+    """
+    최적 배합비를 찾기 위한 유전 알고리즘 메인 루프
+    """
+    # 1. 초기 집단 생성 (Random Initialization)
+    population = []
+    for _ in range(pop_size):
+        individual = ingredient_db.sample(n=min(len(ingredient_db), 8)).copy()
+        individual['Usage%'] = np.random.dirichlet(np.ones(len(individual))) * 15 # 기타원료 15% 내외
+        population.append(individual)
 
-return pd.DataFrame(ingredients)
-```
+    for gen in range(generations):
+        scores = []
+        for ind in population:
+            props = calculate_properties(ind, **target_specs)
+            # Fitness Score: 목표값과의 차이 최소화 (Penalty Method)
+            score = (abs(props['Brix'] - target_specs['target_brix']) * 40 +
+                     abs(props['Acidity'] - target_specs['target_acid']) * 60 +
+                     abs(props['Sweetness'] - target_specs['target_sweet']) * 30 +
+                     (props['Cost'] / 100))
+            scores.append(score)
+        
+        # 2. 선택 (Selection): 상위 30% 생존
+        sorted_indices = np.argsort(scores)
+        population = [population[i] for i in sorted_indices[:int(pop_size * 0.3)]]
+        
+        # 3. 교배 및 변이 (Crossover & Mutation) - 간략화된 로직
+        while len(population) < pop_size:
+            parent = population[np.random.randint(0, len(population))]
+            child = parent.copy()
+            child['Usage%'] = child['Usage%'] * np.random.uniform(0.9, 1.1) # 10% 변이
+            population.append(child)
+            
+    # 최종 최적 개체 반환
+    best_ind = population[0]
+    # Water Balance 추가
+    other_usage = best_ind['Usage%'].sum()
+    water_row = pd.DataFrame([{
+        'Ingredient': 'Water (Purified)', 'Category': 'Base', 'Brix': 0, 'pH': 7.0, 
+        'Acidity': 0, 'Sweetness': 0, 'Cost': 50, 'Purpose': 'Solvent', 'Usage%': 100 - other_usage
+    }])
+    final_formula = pd.concat([best_ind, water_row], ignore_index=True)
+    return final_formula
 
-st.header("3. Ingredient DB")
+# ================================================================================
+# 4. UI 및 메인 로직
+# ================================================================================
+def main():
+    st.title("🧪 AI Beverage Formulation R&D Platform")
+    st.markdown("---")
 
-if st.button("Generate Ingredient DB"):
+    # 사이드바 설정
+    with st.sidebar:
+        st.header("⚙️ 개발 환경 설정")
+        api_key = st.text_input("OpenAI API Key", type="password")
+        
+        st.header("🎯 목표 물성 설계")
+        bev_type = st.selectbox("음료 유형", ["Carbonated", "Juice", "Sports", "Energy", "Plant Based"])
+        target_brix = st.slider("Target Brix", 0.0, 20.0, 11.0)
+        target_sweet = st.slider("Target Sweetness", 0.0, 15.0, 7.0)
+        target_acid = st.slider("Target Acidity (%)", 0.0, 1.0, 0.22)
+        
+        st.header("🧬 알고리즘 파라미터")
+        pop_size = st.select_slider("Population Size", options=[200, 500, 1000], value=500)
+        gens = st.select_slider("Generations", options=[50, 100, 200], value=50)
 
-```
-db = generate_ingredient_db(flavor)
+    if not api_key:
+        st.warning("OpenAI API Key를 입력해주세요.")
+        return
 
-st.session_state["db"] = db
+    client = get_openai_client(api_key)
 
-st.success("500 Ingredient Generated")
-```
+    # Step 1: Flavor 선택
+    st.subheader("Step 1. 트렌드 Flavor 선택")
+    flavors = ["Classic Cola", "Yuzu Citrus", "Mango Energy", "Oat Vanilla", "Lemon Lime"]
+    selected_flavor = st.selectbox("개발할 맛을 선택하세요", flavors)
 
-if "db" in st.session_state:
+    # Step 2: AI 원료 DB 생성 (GPT API)
+    if st.button("원료 DB 생성 및 배합 최적화 시작"):
+        with st.spinner("AI가 최적의 원료를 선정하고 수천 개의 조합을 시뮬레이션 중입니다..."):
+            
+            # API 호출 - 원료 DB 생성 (실제 운영 시 500종 생성을 위해 프롬프트 세분화 필요)
+            prompt = f"Create a JSON list of 15 essential ingredients for a {selected_flavor} {bev_type} drink. Include: Ingredient, Category, Brix, pH, Acidity, Sweetness, Cost, Purpose. JSON format only."
+            
+            response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": prompt}],
+                response_format={"type": "json_object"}
+            )
+            
+            raw_data = json.loads(response.choices[0].message.content)
+            # JSON 키 유연성 처리
+            key = list(raw_data.keys())[0]
+            ingredient_db = pd.DataFrame(raw_data[key])
 
-```
-st.dataframe(st.session_state["db"].head(20))
-```
+            # Step 3: 배합 최적화 (GA)
+            target_specs = {
+                "target_brix": target_brix,
+                "target_acid": target_acid,
+                "target_sweet": target_sweet
+            }
+            
+            final_formula = run_genetic_algorithm(ingredient_db, target_specs, pop_size, gens)
+            
+            # 결과 출력
+            st.success("배합 최적화 완료!")
+            
+            # 최종 물성 요약
+            final_props = calculate_properties(final_formula, **target_specs)
+            
+            col1, col2, col3, col4, col5 = st.columns(5)
+            col1.metric("최종 Brix", f"{final_props['Brix']}°Bx")
+            col2.metric("최종 산도", f"{final_props['Acidity']}%")
+            col3.metric("최종 감미도", f"{final_props['Sweetness']}")
+            col4.metric("추정 pH", f"{final_props['pH']}")
+            col5.metric("원가 (₩/kg)", f"{int(final_props['Cost'])}원")
 
-# -----------------------
+            # 배합표 출력
+            st.subheader("📋 R&D 표준 배합표")
+            
+            # 가로/세로 데이터 구성
+            display_df = final_formula.copy()
+            display_df['Brix_Cont.'] = (display_df['Usage%'] * display_df['Brix'] / 100).round(3)
+            display_df['Acid_Cont.'] = (display_df['Usage%'] * display_df['Acidity'] / 100).round(4)
+            
+            # 합계 행 추가
+            total_row = pd.Series({
+                'Ingredient': 'TOTAL',
+                'Usage%': display_df['Usage%'].sum(),
+                'Brix_Cont.': display_df['Brix_Cont.'].sum(),
+                'Acid_Cont.': display_df['Acid_Cont.'].sum(),
+                'Cost': final_props['Cost']
+            })
+            
+            st.dataframe(display_df.style.format({
+                'Usage%': '{:.3f}%',
+                'Cost': '{:,.0f}원',
+                'Brix_Cont.': '{:.3f}',
+                'Acid_Cont.': '{:.4f}'
+            }), use_container_width=True)
 
-# 배합 계산
+            # 다운로드 버튼
+            output = io.BytesIO()
+            with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+                display_df.to_excel(writer, sheet_name='Formula')
+            
+            st.download_button(
+                label="📥 엑셀 배합표 다운로드",
+                data=output.getvalue(),
+                file_name=f"{selected_flavor}_formula.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
 
-# -----------------------
+            # Step 4: AI 연구원 종합 평가
+            st.markdown("---")
+            st.subheader("👨‍🔬 AI 시니어 연구원 기술 평가")
+            
+            eval_prompt = f"""
+            You are a beverage R&D scientist with 20 years of experience.
+            Analyze this {bev_type} formula for {selected_flavor}:
+            {display_df.to_string()}
+            
+            Provide:
+            1. Flavor & Mouthfeel balance evaluation
+            2. Technical improvement suggestions (pH stability, precipitation risks)
+            3. Regulatory compliance check (General concept)
+            Answer in Korean.
+            """
+            
+            eval_response = client.chat.completions.create(
+                model="gpt-4o-mini",
+                messages=[{"role": "user", "content": eval_prompt}]
+            )
+            st.info(eval_response.choices[0].message.content)
 
-def calculate_formula(db, target_brix, target_sweet, target_acid):
-
-```
-sugar = db[db["Category"]=="Sugar"].sample(1)
-acid = db[db["Category"]=="Acid"].sample(1)
-flavor = db[db["Category"]=="Extract"].sample(1)
-stabilizer = db[db["Category"]=="Stabilizer"].sample(1)
-
-sugar_usage = target_brix * 0.8
-acid_usage = target_acid * 2
-
-flavor_usage = random.uniform(0.8,1.5)
-stabilizer_usage = random.uniform(0.05,0.2)
-
-water_usage = 100 - (
-    sugar_usage +
-    acid_usage +
-    flavor_usage +
-    stabilizer_usage
-)
-
-formula = pd.DataFrame({
-
-    "Ingredient":[
-        "Water",
-        sugar.iloc[0]["Ingredient"],
-        acid.iloc[0]["Ingredient"],
-        flavor.iloc[0]["Ingredient"],
-        stabilizer.iloc[0]["Ingredient"]
-    ],
-
-    "Usage":[
-        water_usage,
-        sugar_usage,
-        acid_usage,
-        flavor_usage,
-        stabilizer_usage
-    ]
-
-})
-
-return formula
-```
-
-# -----------------------
-
-# 배합 생성
-
-# -----------------------
-
-st.header("4. Generate Formula")
-
-if st.button("Calculate Formula"):
-
-```
-db = st.session_state["db"]
-
-formula = calculate_formula(db,target_brix,target_sweet,target_acid)
-
-st.session_state["formula"] = formula
-
-st.dataframe(formula)
-```
-
-# -----------------------
-
-# AI 평가
-
-# -----------------------
-
-if "formula" in st.session_state:
-
-```
-st.header("5. AI R&D Evaluation")
-
-if st.button("AI Evaluate"):
-
-    table = st.session_state["formula"].to_string()
-
-    prompt = f"""
-```
-
-You are beverage R&D scientist.
-
-Evaluate this formulation.
-
-{table}
-
-Give improvement suggestions.
-"""
-
-```
-    response = client.chat.completions.create(
-        model="gpt-4.1",
-        messages=[{"role":"user","content":prompt}]
-    )
-
-    st.write(response.choices[0].message.content)
-```
+if __name__ == "__main__":
+    main()
