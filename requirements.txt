@@ -1,3 +1,6 @@
 streamlit
 pandas
-openai>=1.0.0
+numpy
+openai
+scipy
+xlsxwriter
